@@ -1,0 +1,48 @@
+[
+  {
+    "id": "h-stk-aapl",
+    "type": "stock",
+    "name": "Apple Inc.",
+    "symbol": "AAPL",
+    "units": 10,
+    "pricePerUnit": 180,
+    "currency": "EUR",
+    "categoryId": "c-stocks",
+    "tags": ["tech"],
+    "notes": "",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z",
+    "isDeleted": false
+  },
+  {
+    "id": "h-cry-btc",
+    "type": "crypto",
+    "name": "Bitcoin",
+    "symbol": "BTC",
+    "units": 0.25,
+    "pricePerUnit": 60000,
+    "currency": "EUR",
+    "categoryId": "c-crypto",
+    "tags": ["long-term"],
+    "notes": "",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z",
+    "isDeleted": false
+  },
+  {
+    "id": "h-cash-eur",
+    "type": "cash",
+    "name": "Checking Account",
+    "symbol": "EUR",
+    "units": 1,
+    "pricePerUnit": 3000,
+    "currency": "EUR",
+    "categoryId": "c-cash",
+    "tags": ["liquidity"],
+    "notes": "",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "updatedAt": "2025-01-01T00:00:00.000Z",
+    "isDeleted": false
+  }
+]
+

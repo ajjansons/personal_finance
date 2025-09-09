@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "jsx": "react-jsx",
+    "strict": true,
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom", "@playwright/test"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "skipLibCheck": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "src",
+    "scripts",
+    "playwright.config.ts",
+    "vite.config.ts",
+    "TDD.md",
+    "CODEX_EXECUTION_PLAN.md",
+    "CODEX_PROMPTS"
+  ]
+}

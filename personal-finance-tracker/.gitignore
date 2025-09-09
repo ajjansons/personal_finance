@@ -1,0 +1,9 @@
+node_modules
+dist
+.vite
+.playwright
+coverage
+*.log
+.env.local
+public/demo-seed.json
+
