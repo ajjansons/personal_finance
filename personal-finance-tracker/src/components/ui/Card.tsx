@@ -1,7 +1,16 @@
 import { ReactNode } from 'react';
 
-export function Card({ children }: { children: ReactNode }) {
-  return <div className="rounded-md border bg-white p-4 shadow-sm">{children}</div>;
+interface CardProps {
+  children: ReactNode;
+  className?: string;
+}
+
+export function Card({ children, className = '' }: CardProps) {
+  return (
+    <div className={`glass-card animate-fade-in-up ${className}`}>
+      {children}
+    </div>
+  );
 }
 export default Card;
 

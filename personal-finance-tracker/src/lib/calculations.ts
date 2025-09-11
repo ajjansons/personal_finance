@@ -1,6 +1,13 @@
 import { Category, Holding, PricePoint } from './repository/types';
 
 export function calcMarketValue(h: Holding): number {
+  // Current value policy:
+  // - For cash/real_estate: treat current value as the amount itself (buyValue or units*pricePerUnit)
+  // - For other assets: current = shares * current pricePerUnit (ignore any stale currentValue)
+  if (h.type === 'cash' || h.type === 'real_estate') {
+    const val = typeof (h as any).buyValue === 'number' ? (h as any).buyValue : h.units * h.pricePerUnit;
+    return val;
+  }
   return h.units * h.pricePerUnit;
 }
 
@@ -38,7 +45,12 @@ export function computePortfolioSeries(holdings: Holding[], _pricePoints: PriceP
   const dates = Array.from(new Set(active.map((h) => h.purchaseDate))).sort();
   // If only one date, still render one point
   return dates.map((date) => {
-    const total = active.reduce((s, h) => (h.purchaseDate <= date ? s + h.units * h.pricePerUnit : s), 0);
+    const total = active.reduce((s, h) => {
+      if (h.purchaseDate <= date) {
+        return s + calcMarketValue(h);
+      }
+      return s;
+    }, 0);
     return { date, total };
   });
 }

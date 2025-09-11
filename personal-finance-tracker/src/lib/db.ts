@@ -30,6 +30,21 @@ export class AppDB extends Dexie {
           if (!h.purchaseDate) h.purchaseDate = today;
         });
       });
+    // v3: add buyValue/currentValue optional fields; initialize from units*pricePerUnit
+    this.version(3)
+      .stores({
+        holdings: 'id, type, categoryId, name',
+        pricePoints: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        categories: 'id, name, sortOrder',
+        appMeta: 'id'
+      })
+      .upgrade(async (tx) => {
+        await tx.table('holdings').toCollection().modify((h: any) => {
+          const derived = (h.units || 0) * (h.pricePerUnit || 0);
+          if (typeof h.buyValue !== 'number') h.buyValue = derived;
+          if (typeof h.currentValue !== 'number') h.currentValue = derived;
+        });
+      });
   }
 }
 

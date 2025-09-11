@@ -10,6 +10,8 @@ export const HoldingSchema = z.object({
   symbol: z.string().optional(),
   units: z.number().finite(),
   pricePerUnit: z.number().finite(),
+  buyValue: z.number().finite().optional(),
+  currentValue: z.number().finite().optional(),
   currency: z.string(),
   categoryId: z.string().optional(),
   purchaseDate: z.string(),
@@ -66,6 +68,17 @@ export function migrateIfNeeded(json: unknown): z.infer<typeof ExportSchema> {
         ...h
       }));
       obj.schemaVersion = 2;
+    }
+    if (obj.schemaVersion < 3) {
+      obj.holdings = (obj.holdings || []).map((h: any) => {
+        const derived = (h.units || 0) * (h.pricePerUnit || 0);
+        return {
+          buyValue: typeof h.buyValue === 'number' ? h.buyValue : derived,
+          currentValue: typeof h.currentValue === 'number' ? h.currentValue : derived,
+          ...h
+        };
+      });
+      obj.schemaVersion = 3;
     }
   }
   const parsed = ExportSchema.parse(obj);

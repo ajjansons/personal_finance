@@ -7,6 +7,9 @@ export type Holding = {
   symbol?: string;
   units: number;
   pricePerUnit: number;
+  // Optional direct value inputs to support non-unit-priced assets and gain calc
+  buyValue?: number;
+  currentValue?: number;
   currency: string;
   categoryId?: string;
   // ISO date YYYY-MM-DD when the asset was purchased

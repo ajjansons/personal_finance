@@ -20,11 +20,15 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     const id = nanoid('h-');
     const now = new Date().toISOString();
     const today = now.slice(0, 10);
+    const derivedBuy = (h as any).buyValue ?? (h.units || 0) * (h.pricePerUnit || 0);
     await db.holdings.put({
       ...h,
       id,
       // default purchaseDate to today if missing
       purchaseDate: (h as any).purchaseDate || today,
+      buyValue: (h as any).buyValue ?? derivedBuy,
+      // For cash/real_estate, we keep current value aligned with amount; for others we rely on units*pricePerUnit.
+      currentValue: (h.type === 'cash' || h.type === 'real_estate') ? ((h as any).currentValue ?? derivedBuy) : undefined,
       createdAt: now,
       updatedAt: now,
       isDeleted: false
@@ -66,7 +70,16 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     await db.pricePoints.put({ ...p, id });
     // also reflect latest price on holding
     const h = await db.holdings.get(p.holdingId);
-    if (h) await db.holdings.put({ ...h, pricePerUnit: p.pricePerUnit, updatedAt: new Date().toISOString() });
+    if (h) {
+      const updated: any = { ...h, pricePerUnit: p.pricePerUnit, updatedAt: new Date().toISOString() };
+      // For cash/real_estate we mirror current value to amount; for others ignore currentValue to avoid staleness.
+      if (h.type === 'cash' || h.type === 'real_estate') {
+        updated.currentValue = (h.units || 0) * p.pricePerUnit;
+      } else {
+        updated.currentValue = undefined;
+      }
+      await db.holdings.put(updated);
+    }
     return id;
   }
   async getPriceHistory(holdingId: string): Promise<PricePoint[]> {
