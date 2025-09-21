@@ -1,6 +1,7 @@
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { colorAt, CHART_THEME } from './palette';
-import { formatEur } from '@/lib/utils/date';
+import { formatCurrency } from '@/lib/utils/date';
+import { useUIStore } from '@/lib/state/uiStore';
 import { useState } from 'react';
 import ChartModal, { ExpandToggleButton } from '@/components/ui/ChartModal';
 
@@ -10,11 +11,12 @@ function TooltipContent({ active, payload }: any) {
   if (!active || !payload || !payload.length) return null;
   const p = payload[0].payload as Datum;
   const pct = p.percent !== undefined ? p.percent : 0;
+  const displayCurrency = useUIStore.getState().displayCurrency;
   return (
     <div className="glass-card p-3 text-sm border border-slate-600/30">
       <div className="font-medium text-slate-100">{payload[0].name}</div>
       <div className="text-slate-300">
-        {formatEur(p.value)} ({(pct * 100).toFixed(1)}%)
+        {formatCurrency(p.value, displayCurrency)} ({(pct * 100).toFixed(1)}%)
       </div>
     </div>
   );
@@ -38,6 +40,7 @@ function CustomLegend({ payload }: any) {
 
 export default function AllocationPie({ data }: { data: Datum[] }) {
   const [expanded, setExpanded] = useState(false);
+  const displayCurrency = useUIStore((s) => s.displayCurrency);
   
   if (!data || data.length === 0) 
     return <p className="text-sm text-slate-400 text-center py-8">No data available</p>;
@@ -81,7 +84,7 @@ export default function AllocationPie({ data }: { data: Datum[] }) {
       <ChartModal 
         open={expanded} 
         onClose={() => setExpanded(false)} 
-        title="Portfolio Allocation"
+        title={`Portfolio Allocation (${displayCurrency})`}
       >
         <Chart height="100%" outerRadius={220} />
       </ChartModal>

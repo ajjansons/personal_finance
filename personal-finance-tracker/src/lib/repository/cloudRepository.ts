@@ -25,6 +25,9 @@ export class CloudPortfolioRepository implements PortfolioRepository {
   addPricePoint(_p: PricePointCreate): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
   getPriceHistory(_holdingId: string): Promise<PricePoint[]> { this.notImplemented(); return Promise.resolve([]); }
   getAllPricePoints(): Promise<PricePoint[]> { this.notImplemented(); return Promise.resolve([]); }
+  addTransaction(_t: any): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
+  getTransactions(_holdingId: string): Promise<any[]> { this.notImplemented(); return Promise.resolve([]); }
+  getAllTransactions(): Promise<any[]> { this.notImplemented(); return Promise.resolve([]); }
 
   exportAll(): Promise<{ holdings: Holding[]; categories: Category[]; pricePoints: PricePoint[] }> {
     this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [] });
@@ -34,4 +37,3 @@ export class CloudPortfolioRepository implements PortfolioRepository {
   }
   clearAll(): Promise<void> { this.notImplemented(); return Promise.resolve(); }
 }
-

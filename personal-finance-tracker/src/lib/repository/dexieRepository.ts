@@ -7,8 +7,11 @@ import {
   HoldingCreate,
   PortfolioRepository,
   PricePoint,
-  PricePointCreate
+  PricePointCreate,
+  Transaction
 } from './types';
+
+const normalizeFiat = (code: string | undefined): 'USD' | 'EUR' => (code && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
 
 export class DexiePortfolioRepository implements PortfolioRepository {
   async getHoldings(opts?: { includeDeleted?: boolean }): Promise<Holding[]> {
@@ -21,12 +24,14 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     const now = new Date().toISOString();
     const today = now.slice(0, 10);
     const derivedBuy = (h as any).buyValue ?? (h.units || 0) * (h.pricePerUnit || 0);
+    const holdingCurrency = normalizeFiat((h.currency || '').toString());
     await db.holdings.put({
       ...h,
       id,
       // default purchaseDate to today if missing
       purchaseDate: (h as any).purchaseDate || today,
       buyValue: (h as any).buyValue ?? derivedBuy,
+      buyValueCurrency: (h as any).buyValueCurrency ?? holdingCurrency,
       // For cash/real_estate, we keep current value aligned with amount; for others we rely on units*pricePerUnit.
       currentValue: (h.type === 'cash' || h.type === 'real_estate') ? ((h as any).currentValue ?? derivedBuy) : undefined,
       createdAt: now,
@@ -40,6 +45,16 @@ export class DexiePortfolioRepository implements PortfolioRepository {
       dateISO: today,
       pricePerUnit: h.pricePerUnit
     });
+    // Seed baseline transaction at purchase date
+    const isAmount = h.type === 'cash' || h.type === 'real_estate';
+    const baseDelta = isAmount ? ((h as any).buyValue ?? derivedBuy) : (h.units || 0);
+    await db.transactions.put({
+      id: nanoid('tx-'),
+      holdingId: id,
+      dateISO: (h as any).purchaseDate || today,
+      deltaUnits: baseDelta,
+      pricePerUnit: isAmount ? undefined : h.pricePerUnit
+    } as any);
     return id;
   }
   async updateHolding(h: Holding): Promise<void> {
@@ -55,11 +70,18 @@ export class DexiePortfolioRepository implements PortfolioRepository {
   }
   async createCategory(c: CategoryCreate): Promise<string> {
     const id = nanoid('c-');
-    await db.categories.put({ ...c, id });
+    await db.categories.put({
+      ...c,
+      id,
+      depositCurrency: c.depositCurrency ? normalizeFiat(c.depositCurrency) : 'EUR'
+    });
     return id;
   }
   async updateCategory(c: Category): Promise<void> {
-    await db.categories.put(c);
+    await db.categories.put({
+      ...c,
+      depositCurrency: c.depositCurrency ? normalizeFiat(c.depositCurrency) : 'EUR'
+    });
   }
   async deleteCategory(id: string): Promise<void> {
     await db.categories.delete(id);
@@ -87,6 +109,18 @@ export class DexiePortfolioRepository implements PortfolioRepository {
   }
   async getAllPricePoints(): Promise<PricePoint[]> {
     return db.pricePoints.orderBy('dateISO').toArray();
+  }
+
+  async addTransaction(t: Omit<Transaction, 'id'>): Promise<string> {
+    const id = nanoid('tx-');
+    await db.transactions.put({ ...t, id } as any);
+    return id;
+  }
+  async getTransactions(holdingId: string): Promise<Transaction[]> {
+    return db.transactions.where('holdingId').equals(holdingId).sortBy('dateISO') as any;
+  }
+  async getAllTransactions(): Promise<Transaction[]> {
+    return db.transactions.orderBy('dateISO').toArray() as any;
   }
 
   async exportAll() {

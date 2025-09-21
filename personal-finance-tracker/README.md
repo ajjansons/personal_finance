@@ -58,3 +58,25 @@ The app follows semantic markup and keyboard-accessible forms. Strings are centr
 ### License
 
 MIT (for this template).
+
+## Live Prices & Currency
+
+This app can optionally show live prices and a global USD/EUR toggle:
+
+- Crypto quotes via CoinGecko
+- Stock quotes via Twelve Data
+- USD↔EUR FX via Twelve Data
+
+Set API keys in your local environment (do not commit them):
+
+```
+VITE_TWELVE_DATA_KEY=your_twelve_data_key
+VITE_COINGECKO_API_KEY=your_coingecko_key
+```
+
+Create `.env.local` (gitignored) or export variables in your shell. If keys are missing, the app still works with manual prices; a friendly note appears and network calls are skipped.
+
+Notes:
+- Free tiers are rate-limited. The app caches quotes/FX for ~10 minutes using React Query to stay within limits.
+- Only latest quotes are fetched; no historical time-series.
+- The display currency toggle affects all totals, tables, and charts. Stored data is not changed.

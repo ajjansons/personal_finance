@@ -17,6 +17,11 @@ export function useCategories() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] })
   });
 
+  const update = useMutation({
+    mutationFn: (payload: Category) => repo.updateCategory(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] })
+  });
+
   const del = useMutation({
     mutationFn: (id: string) => repo.deleteCategory(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['categories'] })
@@ -26,7 +31,7 @@ export function useCategories() {
     data: q.data,
     isLoading: q.isLoading,
     createCategory: create.mutateAsync,
+    updateCategory: update.mutateAsync,
     deleteCategory: del.mutateAsync
   };
 }
-

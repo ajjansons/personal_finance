@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { SCHEMA_VERSION } from './constants';
 
+const FiatCurrencyEnum = z.enum(['USD', 'EUR']);
 export const AssetTypeEnum = z.enum(['stock', 'crypto', 'cash', 'real_estate', 'other']);
 
 export const HoldingSchema = z.object({
@@ -11,6 +12,7 @@ export const HoldingSchema = z.object({
   units: z.number().finite(),
   pricePerUnit: z.number().finite(),
   buyValue: z.number().finite().optional(),
+  buyValueCurrency: FiatCurrencyEnum.optional(),
   currentValue: z.number().finite().optional(),
   currency: z.string(),
   categoryId: z.string().optional(),
@@ -37,7 +39,9 @@ export const CategorySchema = z.object({
   id: z.string(),
   name: z.string(),
   color: z.string().optional(),
-  sortOrder: z.number()
+  sortOrder: z.number(),
+  depositValue: z.number().finite().optional(),
+  depositCurrency: FiatCurrencyEnum.optional()
 });
 export type CategoryIn = z.input<typeof CategorySchema>;
 export type CategoryOut = z.output<typeof CategorySchema>;
@@ -56,6 +60,8 @@ export const ExportSchema = z.object({
   categories: z.array(CategorySchema),
   meta: z.any().optional()
 });
+
+const normalizeFiat = (code: unknown): 'USD' | 'EUR' => (code === 'USD' ? 'USD' : 'EUR');
 
 export function migrateIfNeeded(json: unknown): z.infer<typeof ExportSchema> {
   // Allow reading older exports and migrate forward
@@ -79,6 +85,18 @@ export function migrateIfNeeded(json: unknown): z.infer<typeof ExportSchema> {
         };
       });
       obj.schemaVersion = 3;
+    }
+    if (obj.schemaVersion < 5) {
+      obj.holdings = (obj.holdings || []).map((h: any) => ({
+        buyValueCurrency: h.buyValueCurrency ? normalizeFiat(h.buyValueCurrency) : normalizeFiat(h.currency),
+        ...h
+      }));
+      obj.categories = (obj.categories || []).map((c: any) => ({
+        depositCurrency: c.depositCurrency ? normalizeFiat(c.depositCurrency) : 'EUR',
+        depositValue: typeof c.depositValue === 'number' ? c.depositValue : undefined,
+        ...c
+      }));
+      obj.schemaVersion = 5;
     }
   }
   const parsed = ExportSchema.parse(obj);

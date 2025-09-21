@@ -1,24 +1,27 @@
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { formatEur } from '@/lib/utils/date';
+import { formatCurrency } from '@/lib/utils/date';
 import { colorAt, CHART_THEME } from './palette';
 import { useState } from 'react';
 import ChartModal, { ExpandToggleButton } from '@/components/ui/ChartModal';
+import { useUIStore } from '@/lib/state/uiStore';
 
 type Pt = { date: string; total: number };
 
 function TooltipContent({ active, payload, label }: any) {
   if (!active || !payload || !payload.length) return null;
   const p = payload[0];
+  const displayCurrency = useUIStore.getState().displayCurrency;
   return (
     <div className="glass-card p-3 text-sm border border-slate-600/30">
       <div className="font-medium text-slate-100">{label}</div>
-      <div className="text-slate-300">{formatEur(p.value as number)}</div>
+      <div className="text-slate-300">{formatCurrency(p.value as number, displayCurrency)}</div>
     </div>
   );
 }
 
 export default function TotalValueLine({ data }: { data: Pt[] }) {
   const [expanded, setExpanded] = useState(false);
+  const displayCurrency = useUIStore((s) => s.displayCurrency);
   
   if (!data || data.length === 0) 
     return <p className="text-sm text-slate-400 text-center py-8">No data available</p>;
@@ -55,7 +58,7 @@ export default function TotalValueLine({ data }: { data: Pt[] }) {
           />
           <YAxis 
             width={80} 
-            tickFormatter={(v) => formatEur(Number(v))} 
+            tickFormatter={(v) => formatCurrency(Number(v), displayCurrency)} 
             axisLine={false}
             tickLine={false}
             tick={{ fill: CHART_THEME.textColor, fontSize: 12 }}

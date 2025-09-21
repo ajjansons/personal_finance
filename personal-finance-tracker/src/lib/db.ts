@@ -1,10 +1,13 @@
 import Dexie, { Table } from 'dexie';
-import { AppMeta, Category, Holding, PricePoint } from './repository/types';
+import { AppMeta, Category, Holding, PricePoint, Transaction } from './repository/types';
 import { SCHEMA_VERSION } from './constants';
+
+const normalizeFiat = (code: unknown): 'USD' | 'EUR' => (typeof code === 'string' && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
 
 export class AppDB extends Dexie {
   holdings!: Table<Holding, string>;
   pricePoints!: Table<PricePoint, string>;
+  transactions!: Table<Transaction, string>;
   categories!: Table<Category, string>;
   appMeta!: Table<AppMeta, string>;
 
@@ -43,6 +46,60 @@ export class AppDB extends Dexie {
           const derived = (h.units || 0) * (h.pricePerUnit || 0);
           if (typeof h.buyValue !== 'number') h.buyValue = derived;
           if (typeof h.currentValue !== 'number') h.currentValue = derived;
+        });
+      });
+
+    // v4: introduce transactions table and backfill baseline entries from existing holdings
+    this.version(4)
+      .stores({
+        holdings: 'id, type, categoryId, name',
+        pricePoints: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        transactions: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        categories: 'id, name, sortOrder',
+        appMeta: 'id'
+      })
+      .upgrade(async (tx) => {
+        const nano = (prefix: string) => `${prefix}${Math.random().toString(36).slice(2, 10)}`;
+        const holdings: any[] = await tx.table('holdings').toArray();
+        const trxTable = tx.table('transactions');
+        for (const h of holdings) {
+          const dateISO: string = (h.purchaseDate as string) || new Date().toISOString().slice(0, 10);
+          const isAmount = h.type === 'cash' || h.type === 'real_estate';
+          const baseAmount = typeof h.buyValue === 'number' ? h.buyValue : ((h.units || 0) * (h.pricePerUnit || 0));
+          const deltaUnits = isAmount ? baseAmount : (h.units || 0);
+          const existing = await trxTable.where('holdingId').equals(h.id).count();
+          if (existing === 0) {
+            await trxTable.put({
+              id: nano('tx-'),
+              holdingId: h.id,
+              dateISO,
+              deltaUnits,
+              pricePerUnit: isAmount ? undefined : (h.pricePerUnit || 0)
+            } as any);
+          }
+        }
+      });
+
+    // v5: store buyValueCurrency and category deposits
+    this.version(5)
+      .stores({
+        holdings: 'id, type, categoryId, name',
+        pricePoints: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        transactions: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        categories: 'id, name, sortOrder',
+        appMeta: 'id'
+      })
+      .upgrade(async (tx) => {
+        await tx.table('holdings').toCollection().modify((h: any) => {
+          const normalized = normalizeFiat((h.currency || '').toString().toUpperCase());
+          if (!h.buyValueCurrency) h.buyValueCurrency = normalized;
+        });
+        await tx.table('categories').toCollection().modify((c: any) => {
+          const normalized = normalizeFiat((c.depositCurrency || '').toString().toUpperCase());
+          c.depositCurrency = normalized;
+          if (typeof c.depositValue !== 'number') {
+            c.depositValue = undefined;
+          }
         });
       });
   }

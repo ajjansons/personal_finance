@@ -1,6 +1,7 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
 import { colorAt, CHART_THEME } from './palette';
-import { formatEur } from '@/lib/utils/date';
+import { formatCurrency } from '@/lib/utils/date';
+import { useUIStore } from '@/lib/state/uiStore';
 import { useState } from 'react';
 import ChartModal, { ExpandToggleButton } from '@/components/ui/ChartModal';
 
@@ -9,16 +10,18 @@ type Row = { name: string; value: number };
 function TooltipContent({ active, payload }: any) {
   if (!active || !payload || !payload.length) return null;
   const p = payload[0];
+  const displayCurrency = useUIStore.getState().displayCurrency;
   return (
     <div className="glass-card p-3 text-sm border border-slate-600/30">
       <div className="font-medium text-slate-100">{p.payload.name}</div>
-      <div className="text-slate-300">{formatEur(Number(p.value))}</div>
+      <div className="text-slate-300">{formatCurrency(Number(p.value), displayCurrency)}</div>
     </div>
   );
 }
 
 export default function CategoryBar({ data }: { data: Row[] }) {
   const [expanded, setExpanded] = useState(false);
+  const displayCurrency = useUIStore((s) => s.displayCurrency);
   
   if (!data || data.length === 0) 
     return <p className="text-sm text-slate-400 text-center py-8">No data available</p>;
@@ -44,7 +47,7 @@ export default function CategoryBar({ data }: { data: Row[] }) {
           />
           <YAxis 
             width={80} 
-            tickFormatter={(v) => formatEur(Number(v))} 
+            tickFormatter={(v) => formatCurrency(Number(v), displayCurrency)} 
             axisLine={false}
             tickLine={false}
             tick={{ fill: CHART_THEME.textColor, fontSize: 12 }}
@@ -81,7 +84,7 @@ export default function CategoryBar({ data }: { data: Row[] }) {
       <ChartModal 
         open={expanded} 
         onClose={() => setExpanded(false)} 
-        title="Value by Category"
+        title={`Value by Category (${displayCurrency})`}
       >
         <Chart height="100%" margin={{ top: 40, right: 80, bottom: 120, left: 120 }} />
       </ChartModal>
