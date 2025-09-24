@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Card from '@/components/ui/Card';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
@@ -8,8 +8,11 @@ import { useUsdEurRate, convert } from '@/lib/fx/twelveDataFx';
 import { useUIStore } from '@/lib/state/uiStore';
 import { formatCurrency } from '@/lib/utils/date';
 import type { AssetType, Holding } from '@/lib/repository/types';
-import { ResponsiveContainer, Treemap, Tooltip, Cell } from 'recharts';
+import { ResponsiveContainer, Treemap, Tooltip } from 'recharts';
 
+/** ----------------------------------------------------------------
+ *  Settings & Types
+ *  ---------------------------------------------------------------- */
 type GroupMode = 'type' | 'all';
 
 type SelectionEntry = { mode: 'all' | 'custom'; ids: string[] };
@@ -23,8 +26,9 @@ type EnrichedHolding = Holding & {
 
 type HeatMapLeaf = {
   id: string;
-  name: string; // label shown on the tile (symbol/name + daily change)
+  name: string;
   fullName: string;
+  displayName: string;
   symbol?: string;
   type: AssetType;
   holdingId: string;
@@ -38,7 +42,7 @@ type HeatMapLeaf = {
 };
 
 type HeatMapGroup = {
-  name: string;
+  name: string; // "Stocks" / "Crypto" (TradingView sector style)
   type?: AssetType;
   groupValue: number;
   groupValueLabel: string;
@@ -46,6 +50,7 @@ type HeatMapGroup = {
 };
 
 const ORDERED_TYPES: AssetType[] = ['stock', 'crypto', 'cash', 'real_estate', 'other'];
+const HEATMAP_TYPES: AssetType[] = ['stock', 'crypto']; // TradingView-style split
 
 const TYPE_LABEL: Record<AssetType, string> = {
   stock: 'Stocks',
@@ -66,16 +71,35 @@ const createInitialSelection = (): SelectionMap => ({
 const normalizeCurrency = (code?: string): 'USD' | 'EUR' =>
   code && code.toUpperCase() === 'USD' ? 'USD' : 'EUR';
 
+/** ----------------------------------------------------------------
+ *  TradingView-like heatmap colors
+ *  ---------------------------------------------------------------- */
+const TV_GREEN = { r: 8, g: 153, b: 129 };      // #089981
+const TV_RED = { r: 242, g: 54, b: 69 };        // #f23645
+const TV_NEUTRAL = { r: 120, g: 123, b: 134 };  // #787b86
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const mix = (a: { r: number; g: number; b: number }, b: { r: number; g: number; b: number }, t: number) => ({
+  r: Math.round(a.r + (b.r - a.r) * t),
+  g: Math.round(a.g + (b.g - a.g) * t),
+  b: Math.round(a.b + (b.b - a.b) * t)
+});
+
 const getHeatColor = (pct: number) => {
-  if (!isFinite(pct)) return 'rgba(71,85,105,0.65)';
-  const clamped = Math.max(-20, Math.min(20, pct));
-  const ratio = (clamped + 20) / 40; // 0 -> red, 1 -> green
-  const start = { r: 220, g: 38, b: 38 };
-  const end = { r: 34, g: 197, b: 94 };
-  const r = Math.round(start.r + (end.r - start.r) * ratio);
-  const g = Math.round(start.g + (end.g - start.g) * ratio);
-  const b = Math.round(start.b + (end.b - start.b) * ratio);
-  return `rgb(${r}, ${g}, ${b})`;
+  if (!isFinite(pct)) return 'rgba(120,123,134,0.65)';
+  const clamped = clamp(pct, -15, 15);
+  if (clamped === 0) {
+    const n = TV_NEUTRAL;
+    return `rgb(${n.r}, ${n.g}, ${n.b})`;
+  }
+  if (clamped > 0) {
+    const t = clamped / 15; // 0 -> neutral, 1 -> green
+    const c = mix(TV_NEUTRAL, TV_GREEN, t);
+    return `rgb(${c.r}, ${c.g}, ${c.b})`;
+  }
+  const t = Math.abs(clamped) / 15; // 0 -> neutral, 1 -> red
+  const c = mix(TV_NEUTRAL, TV_RED, t);
+  return `rgb(${c.r}, ${c.g}, ${c.b})`;
 };
 
 const getTextColor = (rgb: string) => {
@@ -103,13 +127,125 @@ const getSizingValue = (holding: EnrichedHolding) => {
   return 1;
 };
 
+const truncateLabel = (value: string, maxChars: number) => {
+  if (!value) return '';
+  if (!Number.isFinite(maxChars) || maxChars <= 0) return value;
+  if (value.length <= maxChars) return value;
+  if (maxChars <= 3) return value.slice(0, maxChars);
+  return `${value.slice(0, maxChars - 3).trimEnd()}...`;
+};
+
+/** ----------------------------------------------------------------
+ *  Custom Treemap renderer - renders leaf nodes with adaptive labels
+ *  ---------------------------------------------------------------- */
+const TVTreemapTile = (props: any) => {
+  const {
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    onMouseEnter,
+    onMouseLeave,
+    onMouseMove,
+    clipPath
+  } = props;
+
+  const datum = props?.payload ?? props;
+  const hasChildren = datum && Array.isArray(datum.children) && datum.children.length > 0;
+
+  if (width <= 2 || height <= 2) return null;
+
+  // Ignore group/root nodes � we draw headings outside the treemap
+  if (hasChildren || !datum) return null;
+
+  const safeChangePct =
+    typeof datum.changePct === 'number' && Number.isFinite(datum.changePct) ? datum.changePct : 0;
+  const color =
+    typeof datum.color === 'string' && datum.color?.length ? datum.color : getHeatColor(safeChangePct);
+  const textColor =
+    typeof datum.textColor === 'string' && datum.textColor?.length
+      ? datum.textColor
+      : getTextColor(color);
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const changeLabel =
+    typeof datum.changeLabel === 'string' && datum.changeLabel?.length
+      ? datum.changeLabel
+      : formatChangeLabel(safeChangePct);
+  const symbol = typeof datum.symbol === 'string' ? datum.symbol : '';
+  const displayNameCandidate =
+    typeof datum.displayName === 'string' && datum.displayName.trim().length > 0
+      ? datum.displayName
+      : typeof datum.fullName === 'string' && datum.fullName.trim().length > 0
+        ? datum.fullName
+        : typeof datum.name === 'string'
+          ? datum.name
+          : symbol;
+  const displayName = displayNameCandidate.toString();
+
+
+  const area = Math.max(width * height, 1);
+  const base = Math.sqrt(area);
+  const nameFontSize = clamp(Math.floor(base * 0.22), 7, 18);
+  const changeFontSize = clamp(Math.floor(nameFontSize * 0.68), 6, 14);
+
+  const showName = width >= 10 && height >= 10;
+  const showChange = width >= 16 && height >= changeFontSize * 1.6;
+
+  let nameLabel = displayName;
+  if (showName) {
+    const horizontalPadding = Math.max(nameFontSize * 0.5, 4);
+    const approxCharWidth = Math.max(nameFontSize * 0.5, 1.5);
+    const available = Math.max(width - horizontalPadding, approxCharWidth);
+    const maxChars = Math.max(1, Math.floor(available / approxCharWidth));
+    nameLabel = truncateLabel(displayName, maxChars);
+  }
+
+  return (
+    <g clipPath={clipPath} transform={`translate(${x},${y})`} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onMouseMove={onMouseMove}>
+      <rect width={width} height={height} fill={color} stroke="rgba(15,23,42,0.35)" strokeWidth={1} rx={6} />
+      {showName && nameLabel && (
+        <text
+          x={centerX}
+          y={showChange ? centerY - changeFontSize * 0.35 : centerY}
+          fill={textColor}
+          fontSize={nameFontSize}
+          fontWeight={600}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          style={{ pointerEvents: 'none' }}
+        >
+          {nameLabel}
+        </text>
+      )}
+      {showChange && (
+        <text
+          x={centerX}
+          y={centerY + changeFontSize * 0.9}
+          fill={safeChangePct >= 0 ? '#dcfce7' : '#fee2e2'}
+          fontSize={changeFontSize}
+          fontWeight={600}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          style={{ pointerEvents: 'none' }}
+        >
+          {changeLabel}
+        </text>
+      )}
+    </g>
+  );
+};
+
+/** ----------------------------------------------------------------
+ *  Component
+ *  ---------------------------------------------------------------- */
 export default function HeatMap() {
   const { data: rawHoldings } = useHoldings();
   const holdings: Holding[] = rawHoldings || [];
   const { rate } = useUsdEurRate();
   const displayCurrency = useUIStore((s) => s.displayCurrency);
   const [groupMode, setGroupMode] = useState<GroupMode>('type');
-  const [typeFilter, setTypeFilter] = useState<'all' | AssetType>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | Extract<AssetType, 'stock' | 'crypto'>>('all');
   const [selections, setSelections] = useState<SelectionMap>(() => createInitialSelection());
 
   const activeHoldings = useMemo(() => holdings.filter((h) => !h.isDeleted), [holdings]);
@@ -176,19 +312,23 @@ export default function HeatMap() {
     }
   }, [typeFilter, holdingsByType]);
 
+  // Only show Stocks/Crypto like TradingView
   const availableTypes = useMemo(
-    () => ORDERED_TYPES.filter((type) => holdingsByType[type].length > 0),
+    () => HEATMAP_TYPES.filter((type) => holdingsByType[type].length > 0),
     [holdingsByType]
   );
 
+  // Universe shown on heatmap
   const filteredHoldings = useMemo(() => {
-    if (typeFilter === 'all') return enrichedHoldings;
+    const onlyTvTypes = enrichedHoldings.filter((h) => HEATMAP_TYPES.includes(h.type));
+    if (typeFilter === 'all') return onlyTvTypes;
+
     const subset = holdingsByType[typeFilter];
     const selection = selections[typeFilter];
     if (selection.mode === 'all') return subset;
     if (selection.ids.length === 0) return [];
     const allowed = new Set(selection.ids);
-    return subset.filter((holding) => allowed.has(holding.id));
+    return subset.filter((h) => allowed.has(h.id));
   }, [enrichedHoldings, typeFilter, selections, holdingsByType]);
 
   const sortedHoldings = useMemo(
@@ -201,9 +341,9 @@ export default function HeatMap() {
     [sortedHoldings]
   );
 
-  const { treeData, leaves } = useMemo(() => {
+  const { treeData } = useMemo(() => {
     if (!hasRenderableHoldings || sortedHoldings.length === 0) {
-      return { treeData: [] as HeatMapGroup[], leaves: [] as HeatMapLeaf[] };
+      return { treeData: [] as HeatMapGroup[] };
     }
 
     const makeLeaf = (holding: EnrichedHolding): HeatMapLeaf => {
@@ -212,10 +352,12 @@ export default function HeatMap() {
       const changeLabel = formatChangeLabel(changePct);
       const symbol = holding.symbol ? holding.symbol.toUpperCase() : undefined;
       const short = symbol || holding.name;
+
       return {
         id: holding.id,
-        name: `${short} ${changeLabel}`,
+        name: short,
         fullName: holding.name,
+        displayName: short,
         symbol,
         type: holding.type,
         holdingId: holding.id,
@@ -243,19 +385,14 @@ export default function HeatMap() {
             ),
             children: nodes
           }
-        ],
-        leaves: nodes
+        ]
       };
     }
 
     const groups: HeatMapGroup[] = [];
-    const leafAccumulator: HeatMapLeaf[] = [];
-    ORDERED_TYPES.forEach((type) => {
-      const nodes = sortedHoldings
-        .filter((holding) => holding.type === type)
-        .map(makeLeaf);
+    HEATMAP_TYPES.forEach((type) => {
+      const nodes = sortedHoldings.filter((h) => h.type === type).map(makeLeaf);
       if (!nodes.length) return;
-      leafAccumulator.push(...nodes);
       groups.push({
         name: TYPE_LABEL[type],
         type,
@@ -267,8 +404,9 @@ export default function HeatMap() {
         children: nodes
       });
     });
-    return { treeData: groups, leaves: leafAccumulator };
+    return { treeData: groups };
   }, [sortedHoldings, groupMode, displayCurrency, hasRenderableHoldings]);
+  const allLeaves = useMemo(() => treeData.flatMap((group) => group.children), [treeData]);
 
   const toggleHolding = useCallback(
     (type: AssetType, id: string, checked: boolean) => {
@@ -279,22 +417,65 @@ export default function HeatMap() {
           ? new Set(universe.map((holding) => holding.id))
           : new Set(current.ids);
 
-        if (checked) {
-          base.add(id);
-        } else {
-          base.delete(id);
-        }
+        if (checked) base.add(id);
+        else base.delete(id);
 
         if (base.size === universe.length) {
           return { ...prev, [type]: { mode: 'all', ids: [] } };
         }
-
         return { ...prev, [type]: { mode: 'custom', ids: Array.from(base) } };
       });
     },
     [holdingsByType]
   );
 
+  const renderTooltip = useCallback(({ active, payload }: any) => {
+    if (!active || !payload || !payload[0]) return null;
+    const node = payload[0].payload as HeatMapLeaf;
+    if (!node || !node.holdingId) return null;
+    return (
+      <div className="rounded-xl bg-slate-900/95 px-4 py-3 text-sm text-slate-100 shadow-lg border border-slate-700">
+        <div className="font-semibold">{node.fullName}</div>
+        {node.typeLabel && (
+          <div className="text-xs text-slate-400 mb-1">{node.typeLabel}</div>
+        )}
+        <div className="mt-2 flex flex-col gap-1 text-xs">
+          <span className="flex justify-between gap-4">
+            <span className="text-slate-400">Symbol</span>
+            <span>{node.symbol ?? '-'}</span>
+          </span>
+          <span className="flex justify-between gap-4">
+            <span className="text-slate-400">Daily change</span>
+            <span className={node.changePct >= 0 ? 'text-green-400' : 'text-red-400'}>
+              {node.changeLabel}
+            </span>
+          </span>
+          <span className="flex justify-between gap-4">
+            <span className="text-slate-400">Value</span>
+            <span>{node.valueLabel}</span>
+          </span>
+        </div>
+      </div>
+    );
+  }, []);
+
+  const renderTreemap = (nodes: HeatMapLeaf[]) => (
+    <ResponsiveContainer width="100%" height="100%">
+      <Treemap
+        data={[{ name: "root", children: nodes }]}
+        dataKey="size"
+        nameKey="name"
+        stroke="rgba(15,23,42,0.35)"
+        isAnimationActive
+        animationDuration={400}
+        content={(props) => <TVTreemapTile {...props} />}
+      >
+        <Tooltip content={renderTooltip} wrapperStyle={{ outline: "none" }} />
+      </Treemap>
+    </ResponsiveContainer>
+  );
+
+  const overallGroup = treeData[0];
   const selectedType: AssetType | null = typeFilter === 'all' ? null : typeFilter;
   const holdingsForSelectedType = selectedType ? holdingsByType[selectedType] : [];
   const selectionState = selectedType ? selections[selectedType] : null;
@@ -304,9 +485,7 @@ export default function HeatMap() {
     <div className="space-y-6">
       <div className="space-y-1">
         <h1 className="text-3xl font-semibold text-slate-100">Heat Map</h1>
-        <p className="text-slate-400">
-          Visualize portfolio performance with block sizes based on position value and colors based on daily change.
-        </p>
+        <p className="text-slate-400">TradingView-style heatmap: block size by position value, color by daily change.</p>
       </div>
 
       <Card className="p-6 xl:p-8 space-y-6 xl:space-y-8 min-h-[640px]">
@@ -320,10 +499,11 @@ export default function HeatMap() {
               value={groupMode}
               onChange={(event) => setGroupMode(event.target.value as GroupMode)}
             >
-              <option value="type">Group by type</option>
+              <option value="type">Split into Stocks &amp; Crypto</option>
               <option value="all">All holdings together</option>
             </Select>
           </div>
+
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-300" htmlFor="type-filter">
               Type filter
@@ -331,9 +511,9 @@ export default function HeatMap() {
             <Select
               id="type-filter"
               value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value as 'all' | AssetType)}
+              onChange={(event) => setTypeFilter(event.target.value as 'all' | Extract<AssetType, 'stock' | 'crypto'>)}
             >
-              <option value="all">All types</option>
+              <option value="all">Stocks + Crypto</option>
               {availableTypes.map((type) => (
                 <option key={type} value={type}>
                   {TYPE_LABEL[type]}
@@ -341,9 +521,10 @@ export default function HeatMap() {
               ))}
             </Select>
           </div>
+
           <div className="hidden md:flex flex-col justify-end">
             <div className="flex items-center gap-3 text-xs text-slate-400">
-              <span className="h-2 w-24 rounded-full bg-gradient-to-r from-red-500 via-slate-500 to-emerald-500" />
+              <span className="h-2 w-28 rounded-full bg-gradient-to-r from-[#f23645] via-[#787b86] to-[#089981]" />
               <span>Daily % change</span>
             </div>
           </div>
@@ -383,6 +564,7 @@ export default function HeatMap() {
                 </Button>
               </div>
             </div>
+
             {holdingsForSelectedType.length > 0 ? (
               <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
                 {holdingsForSelectedType.map((holding) => {
@@ -417,59 +599,43 @@ export default function HeatMap() {
         )}
 
         <div className="min-h-[520px] h-[640px] xl:h-[720px]">
-          {treeData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <Treemap
-                data={treeData}
-                dataKey="size"
-                stroke="rgba(15,23,42,0.35)"
-                animationDuration={400}
-              >
-                {leaves.map((leaf) => (
-                  <Cell key={leaf.holdingId} fill={leaf.color} />
-                ))}
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload || !payload[0]) return null;
-                    const data = payload[0].payload as HeatMapLeaf;
-                    if (!data || !data.holdingId) return null;
-                    return (
-                      <div className="rounded-xl bg-slate-900/95 px-4 py-3 text-sm text-slate-100 shadow-lg border border-slate-700">
-                        <div className="font-semibold">{data.fullName}</div>
-                        {data.typeLabel && (
-                          <div className="text-xs text-slate-400 mb-1">{data.typeLabel}</div>
-                        )}
-                        <div className="mt-2 flex flex-col gap-1 text-xs">
-                          <span className="flex justify-between gap-4">
-                            <span className="text-slate-400">Symbol</span>
-                            <span>{data.symbol ?? '—'}</span>
-                          </span>
-                          <span className="flex justify-between gap-4">
-                            <span className="text-slate-400">Daily change</span>
-                            <span className={data.changePct >= 0 ? 'text-green-400' : 'text-red-400'}>
-                              {data.changeLabel}
-                            </span>
-                          </span>
-                          <span className="flex justify-between gap-4">
-                            <span className="text-slate-400">Value</span>
-                            <span>{data.valueLabel}</span>
-                          </span>
-                        </div>
+          {allLeaves.length > 0 ? (
+            groupMode === 'type' ? (
+              <div className="grid h-full gap-6 md:grid-cols-2">
+                {treeData.map((group) => (
+                  <div key={group.name} className="flex h-full flex-col gap-3">
+                    <div className="flex items-baseline justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">Segment</p>
+                        <p className="text-sm font-semibold text-slate-200">{group.name}</p>
                       </div>
-                    );
-                  }}
-                  wrapperStyle={{ outline: 'none' }}
-                />
-              </Treemap>
-            </ResponsiveContainer>
+                      <span className="text-xs text-slate-400">{group.groupValueLabel}</span>
+                    </div>
+                    <div className="flex-1 min-h-[260px] md:min-h-[320px]">
+                      {renderTreemap(group.children)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              overallGroup ? (
+                <div className="flex h-full flex-col gap-4">
+                  <div className="flex items-baseline justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Portfolio</p>
+                      <p className="text-sm font-semibold text-slate-200">{overallGroup.name}</p>
+                    </div>
+                    <span className="text-xs text-slate-400">{overallGroup.groupValueLabel}</span>
+                  </div>
+                  <div className="flex-1 min-h-[320px]">
+                    {renderTreemap(overallGroup.children)}
+                  </div>
+                </div>
+              ) : null
+            )
           ) : (
             <div className="flex h-full flex-col items-center justify-center rounded-2xl border border-dashed border-slate-700/60 bg-slate-900/30 text-center text-slate-400 space-y-2">
               <p className="text-sm">No holdings match the current filters.</p>
-              {activeHoldings.length > 0 ? (
-                <p className="text-xs text-slate-500">Try adjusting your filters or selections above.</p>
-              ) : (
-                <p className="text-xs text-slate-500">Add holdings to your portfolio to populate the heat map.</p>
-              )}
             </div>
           )}
         </div>
