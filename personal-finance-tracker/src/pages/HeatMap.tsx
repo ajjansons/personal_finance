@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { FC } from 'react';
 import Card from '@/components/ui/Card';
 import Select from '@/components/ui/Select';
 import Button from '@/components/ui/Button';
@@ -468,7 +469,7 @@ export default function HeatMap() {
         stroke="rgba(15,23,42,0.35)"
         isAnimationActive
         animationDuration={400}
-        content={(props) => <TVTreemapTile {...props} />}
+        content={<TVTreemapTile />}
       >
         <Tooltip content={renderTooltip} wrapperStyle={{ outline: "none" }} />
       </Treemap>

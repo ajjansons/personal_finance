@@ -5,6 +5,10 @@ import {
   CategoryCreate,
   Holding,
   HoldingCreate,
+  ModelPrefs,
+  AiCacheEntry,
+  ExportBundle,
+  ImportBundle,
   PortfolioRepository,
   PricePoint,
   PricePointCreate,
@@ -12,6 +16,7 @@ import {
 } from './types';
 
 const normalizeFiat = (code: string | undefined): 'USD' | 'EUR' => (code && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
+const MODEL_PREFS_ID = 'global';
 
 export class DexiePortfolioRepository implements PortfolioRepository {
   async getHoldings(opts?: { includeDeleted?: boolean }): Promise<Holding[]> {
@@ -123,17 +128,69 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     return db.transactions.orderBy('dateISO').toArray() as any;
   }
 
-  async exportAll() {
-    const [holdings, categories, pricePoints] = await Promise.all([
-      db.holdings.toArray(),
-      db.categories.toArray(),
-      db.pricePoints.toArray()
-    ]);
-    return { holdings, categories, pricePoints };
+  async getModelPrefs(): Promise<ModelPrefs | null> {
+    return (await db.modelPrefs.get(MODEL_PREFS_ID)) ?? null;
   }
 
-  async importAll(payload: { holdings: Holding[]; categories: Category[]; pricePoints: PricePoint[] }) {
-    await db.transaction('rw', db.holdings, db.categories, db.pricePoints, async () => {
+  async setModelPrefs(prefs: ModelPrefs): Promise<void> {
+    await db.modelPrefs.put({ ...prefs, id: MODEL_PREFS_ID });
+  }
+
+  async aiCacheGet(key: string): Promise<AiCacheEntry | undefined> {
+    const entry = await db.aiCache.where('key').equals(key).first();
+    if (!entry) return undefined;
+    if (entry.ttlSec > 0) {
+      const expires = Date.parse(entry.createdAt) + entry.ttlSec * 1000;
+      if (Number.isFinite(expires) && expires <= Date.now()) {
+        await db.aiCache.delete(entry.id);
+        return undefined;
+      }
+    }
+    return entry;
+  }
+
+  async aiCacheSet(entry: { key: string; value: unknown; ttlSec: number }): Promise<void> {
+    const ttlSec = Number.isFinite(entry.ttlSec) && entry.ttlSec > 0 ? Math.floor(entry.ttlSec) : 0;
+    const existing = await db.aiCache.where('key').equals(entry.key).first();
+    const record: AiCacheEntry = {
+      id: existing?.id ?? nanoid('cache-'),
+      key: entry.key,
+      value: entry.value,
+      createdAt: new Date().toISOString(),
+      ttlSec
+    };
+    await db.aiCache.put(record);
+  }
+
+  async aiCachePurgeExpired(): Promise<number> {
+    const now = Date.now();
+    const expiredKeys = await db.aiCache
+      .filter((entry) => entry.ttlSec > 0 && (Date.parse(entry.createdAt) + entry.ttlSec * 1000) <= now)
+      .primaryKeys();
+    if (!expiredKeys.length) return 0;
+    await db.aiCache.bulkDelete(expiredKeys as string[]);
+    return expiredKeys.length;
+  }
+  async exportAll(): Promise<ExportBundle> {
+    const [holdings, categories, pricePoints, modelPrefs, aiCache] = await Promise.all([
+      db.holdings.toArray(),
+      db.categories.toArray(),
+      db.pricePoints.toArray(),
+      db.modelPrefs.get(MODEL_PREFS_ID),
+      db.aiCache.toArray()
+    ]);
+    const payload: ExportBundle = {
+      holdings,
+      categories,
+      pricePoints,
+      modelPrefs: modelPrefs ?? null,
+      aiCache
+    };
+    return payload;
+  }
+
+  async importAll(payload: ImportBundle): Promise<void> {
+    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.modelPrefs, db.aiCache], async () => {
       await db.holdings.clear();
       await db.categories.clear();
       await db.pricePoints.clear();
@@ -145,6 +202,22 @@ export class DexiePortfolioRepository implements PortfolioRepository {
       await db.holdings.bulkPut(holdingsWithDate as any);
       await db.categories.bulkPut(payload.categories);
       await db.pricePoints.bulkPut(payload.pricePoints);
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'modelPrefs')) {
+        const prefs = payload.modelPrefs;
+        if (prefs) {
+          await db.modelPrefs.put({ ...prefs, id: MODEL_PREFS_ID });
+        } else {
+          await db.modelPrefs.delete(MODEL_PREFS_ID);
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'aiCache')) {
+        await db.aiCache.clear();
+        if (payload.aiCache && payload.aiCache.length) {
+          await db.aiCache.bulkPut(payload.aiCache as AiCacheEntry[]);
+        }
+      }
     });
   }
 

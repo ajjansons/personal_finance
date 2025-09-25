@@ -1,5 +1,5 @@
 import Dexie, { Table } from 'dexie';
-import { AppMeta, Category, Holding, PricePoint, Transaction } from './repository/types';
+import { AppMeta, Category, Holding, PricePoint, Transaction, ModelPrefs, AiCacheEntry } from './repository/types';
 import { SCHEMA_VERSION } from './constants';
 
 const normalizeFiat = (code: unknown): 'USD' | 'EUR' => (typeof code === 'string' && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
@@ -10,6 +10,8 @@ export class AppDB extends Dexie {
   transactions!: Table<Transaction, string>;
   categories!: Table<Category, string>;
   appMeta!: Table<AppMeta, string>;
+  modelPrefs!: Table<ModelPrefs, string>;
+  aiCache!: Table<AiCacheEntry, string>;
 
   constructor() {
     super('personal-finance-tracker');
@@ -102,6 +104,25 @@ export class AppDB extends Dexie {
           }
         });
       });
+
+    // v6: introduce modelPrefs and aiCache stores
+    this.version(6)
+      .stores({
+        holdings: 'id, type, categoryId, name',
+        pricePoints: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        transactions: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        categories: 'id, name, sortOrder',
+        appMeta: 'id',
+        modelPrefs: 'id',
+        aiCache: 'id,&key,createdAt'
+      })
+      .upgrade(async (tx) => {
+        const prefsTable = tx.table('modelPrefs');
+        const existing = await prefsTable.get('global');
+        if (!existing) {
+          await prefsTable.put({ id: 'global' });
+        }
+      });
   }
 }
 
@@ -116,6 +137,16 @@ async function ensureMeta() {
       schemaVersion: SCHEMA_VERSION,
       createdAt: new Date().toISOString()
     });
+  } else if (existing.schemaVersion !== SCHEMA_VERSION) {
+    await db.appMeta.put({ ...existing, schemaVersion: SCHEMA_VERSION });
   }
 }
 ensureMeta();
+
+async function ensureModelPrefs() {
+  const existing = await db.modelPrefs.get('global');
+  if (!existing) {
+    await db.modelPrefs.put({ id: 'global' });
+  }
+}
+ensureModelPrefs();

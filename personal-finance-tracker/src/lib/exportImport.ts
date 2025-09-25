@@ -1,6 +1,7 @@
 import { getRepository } from './repository';
 import { SCHEMA_VERSION } from './constants';
 import { migrateIfNeeded } from './validation';
+import type { ImportBundle, AiCacheEntry } from './repository/types';
 
 const repo = getRepository();
 
@@ -17,11 +18,18 @@ export async function exportToJson(): Promise<Blob> {
 export async function importFromJson(text: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const parsed = migrateIfNeeded(JSON.parse(text));
-    await repo.importAll({
+    const bundle: ImportBundle = {
       holdings: parsed.holdings,
       categories: parsed.categories,
       pricePoints: parsed.pricePoints
-    });
+    };
+    if (Object.prototype.hasOwnProperty.call(parsed, 'modelPrefs')) {
+      bundle.modelPrefs = parsed.modelPrefs ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(parsed, 'aiCache')) {
+      bundle.aiCache = (parsed.aiCache ?? []) as AiCacheEntry[];
+    }
+    await repo.importAll(bundle);
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message || 'Unknown error' };
@@ -31,4 +39,5 @@ export async function importFromJson(text: string): Promise<{ ok: true } | { ok:
 export async function clearAllData() {
   await repo.clearAll();
 }
+
 

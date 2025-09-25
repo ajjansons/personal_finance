@@ -3,6 +3,10 @@ import {
   CategoryCreate,
   Holding,
   HoldingCreate,
+  ModelPrefs,
+  AiCacheEntry,
+  ExportBundle,
+  ImportBundle,
   PortfolioRepository,
   PricePoint,
   PricePointCreate
@@ -29,11 +33,20 @@ export class CloudPortfolioRepository implements PortfolioRepository {
   getTransactions(_holdingId: string): Promise<any[]> { this.notImplemented(); return Promise.resolve([]); }
   getAllTransactions(): Promise<any[]> { this.notImplemented(); return Promise.resolve([]); }
 
-  exportAll(): Promise<{ holdings: Holding[]; categories: Category[]; pricePoints: PricePoint[] }> {
-    this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [] });
+  getModelPrefs(): Promise<ModelPrefs | null> { this.notImplemented(); return Promise.resolve(null); }
+  setModelPrefs(_prefs: ModelPrefs): Promise<void> { this.notImplemented(); return Promise.resolve(); }
+
+  aiCacheGet(_key: string): Promise<AiCacheEntry | undefined> { this.notImplemented(); return Promise.resolve(undefined); }
+  aiCacheSet(_entry: { key: string; value: unknown; ttlSec: number }): Promise<void> { this.notImplemented(); return Promise.resolve(); }
+  aiCachePurgeExpired(): Promise<number> { this.notImplemented(); return Promise.resolve(0); }
+
+
+  exportAll(): Promise<ExportBundle> {
+    this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [], modelPrefs: null, aiCache: [] });
   }
-  importAll(_payload: { holdings: Holding[]; categories: Category[]; pricePoints: PricePoint[] }): Promise<void> {
+  importAll(_payload: ImportBundle): Promise<void> {
     this.notImplemented(); return Promise.resolve();
   }
   clearAll(): Promise<void> { this.notImplemented(); return Promise.resolve(); }
 }
+

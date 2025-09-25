@@ -28,11 +28,11 @@ export default function ExportImport() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <Button onClick={onExport}>Export JSON</Button>
-        <label className="inline-flex items-center gap-2">
-          <span className="rounded-md border px-3 py-2 text-sm cursor-pointer bg-white hover:bg-gray-50">
+        <label className="relative inline-flex items-center gap-2 cursor-pointer group">
+          <span className="rounded-xl px-4 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 shadow-lg shadow-blue-500/20 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-xl group-focus-within:ring-2 group-focus-within:ring-blue-400 group-focus-within:ring-offset-2 group-focus-within:ring-offset-slate-900">
             Import JSON
           </span>
-          <input className="hidden" type="file" accept="application/json" onChange={onImport} />
+          <input className="absolute inset-0 h-full w-full cursor-pointer opacity-0" type="file" accept="application/json" onChange={onImport} />
         </label>
       </div>
       <p className="text-sm text-gray-500">
@@ -41,4 +41,5 @@ export default function ExportImport() {
     </div>
   );
 }
+
 

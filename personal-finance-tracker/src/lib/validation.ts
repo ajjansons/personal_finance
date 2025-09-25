@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { SCHEMA_VERSION } from './constants';
 
 const FiatCurrencyEnum = z.enum(['USD', 'EUR']);
+const AiProviderEnum = z.enum(['openai', 'anthropic', 'xai']);
 export const AssetTypeEnum = z.enum(['stock', 'crypto', 'cash', 'real_estate', 'other']);
 
 export const HoldingSchema = z.object({
@@ -46,6 +47,24 @@ export const CategorySchema = z.object({
 export type CategoryIn = z.input<typeof CategorySchema>;
 export type CategoryOut = z.output<typeof CategorySchema>;
 
+export const ModelPrefsSchema = z.object({
+  id: z.literal('global'),
+  provider: AiProviderEnum.nullish(),
+  modelIdByFeature: z.record(z.string()).optional(),
+  useProxy: z.boolean().optional(),
+  budgetUSD: z.number().finite().optional(),
+  webSearchEnabled: z.boolean().optional(),
+  loggingEnabled: z.boolean().optional()
+});
+
+export const AiCacheEntrySchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  value: z.any(),
+  createdAt: z.string(),
+  ttlSec: z.number().int().nonnegative()
+});
+
 export const AppMetaSchema = z.object({
   id: z.literal('app-meta'),
   schemaVersion: z.number(),
@@ -58,6 +77,8 @@ export const ExportSchema = z.object({
   holdings: z.array(HoldingSchema),
   pricePoints: z.array(PricePointSchema),
   categories: z.array(CategorySchema),
+  modelPrefs: ModelPrefsSchema.nullable().optional(),
+  aiCache: z.array(AiCacheEntrySchema).optional(),
   meta: z.any().optional()
 });
 
@@ -97,6 +118,15 @@ export function migrateIfNeeded(json: unknown): z.infer<typeof ExportSchema> {
         ...c
       }));
       obj.schemaVersion = 5;
+    }
+    if (obj.schemaVersion < 6) {
+      if (!Object.prototype.hasOwnProperty.call(obj, 'modelPrefs')) {
+        obj.modelPrefs = { id: 'global' };
+      }
+      if (!Array.isArray(obj.aiCache)) {
+        obj.aiCache = [];
+      }
+      obj.schemaVersion = 6;
     }
   }
   const parsed = ExportSchema.parse(obj);

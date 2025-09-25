@@ -56,11 +56,39 @@ export type AppMeta = {
   lastBackupAt?: string;
 };
 
+export type ModelPrefs = {
+  id: 'global';
+  provider?: 'openai' | 'anthropic' | 'xai' | null;
+  modelIdByFeature?: Record<string, string>;
+  useProxy?: boolean;
+  budgetUSD?: number;
+  webSearchEnabled?: boolean;
+  loggingEnabled?: boolean;
+};
+
+export type AiCacheEntry = {
+  id: string;
+  key: string;
+  value: unknown;
+  createdAt: string;
+  ttlSec: number;
+};
+
 export type HoldingCreate = Omit<Holding, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted'>;
 export type CategoryCreate = Omit<Category, 'id'>;
 export type PricePointCreate = Omit<PricePoint, 'id'>;
 
 export type HoldingWithValue = Holding & { marketValue: number };
+
+export type ExportBundle = {
+  holdings: Holding[];
+  categories: Category[];
+  pricePoints: PricePoint[];
+  modelPrefs?: ModelPrefs | null;
+  aiCache?: AiCacheEntry[];
+};
+
+export type ImportBundle = ExportBundle;
 
 export interface PortfolioRepository {
   getHoldings(opts?: { includeDeleted?: boolean }): Promise<Holding[]>;
@@ -82,7 +110,14 @@ export interface PortfolioRepository {
   getTransactions(holdingId: string): Promise<Transaction[]>;
   getAllTransactions(): Promise<Transaction[]>;
 
-  exportAll(): Promise<{ holdings: Holding[]; categories: Category[]; pricePoints: PricePoint[] }>;
-  importAll(payload: { holdings: Holding[]; categories: Category[]; pricePoints: PricePoint[] }): Promise<void>;
+  getModelPrefs(): Promise<ModelPrefs | null>;
+  setModelPrefs(prefs: ModelPrefs): Promise<void>;
+
+  aiCacheGet(key: string): Promise<AiCacheEntry | undefined>;
+  aiCacheSet(entry: { key: string; value: unknown; ttlSec: number }): Promise<void>;
+  aiCachePurgeExpired(): Promise<number>;
+
+  exportAll(): Promise<ExportBundle>;
+  importAll(payload: ImportBundle): Promise<void>;
   clearAll(): Promise<void>;
 }
