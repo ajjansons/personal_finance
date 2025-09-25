@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useUIStore } from '@/lib/state/uiStore';
 
 const API_BASE = 'https://api.twelvedata.com';
 
@@ -30,14 +32,23 @@ async function fetchUsdEur(): Promise<UsdEurRate> {
 
 export function useUsdEurRate() {
   const qc = useQueryClient();
+  const currentRate = useUIStore((s) => s.usdToEurRate);
+  const setUsdToEurRate = useUIStore((s) => s.setUsdToEurRate);
   const q = useQuery<UsdEurRate>({
     queryKey: ['fx', 'USD_EUR'],
     queryFn: fetchUsdEur,
     staleTime: 10 * 60 * 1000, // 10 minutes
     retry: 1
   });
+  useEffect(() => {
+    const rate = q.data?.rate;
+    if (rate && isFinite(rate) && rate > 0) {
+      setUsdToEurRate(rate);
+    }
+  }, [q.data?.rate, setUsdToEurRate]);
+  const rate = q.data?.rate ?? currentRate ?? 1;
   return {
-    rate: q.data?.rate ?? 1,
+    rate,
     isLoading: q.isLoading,
     isError: q.isError,
     refetch: q.refetch,

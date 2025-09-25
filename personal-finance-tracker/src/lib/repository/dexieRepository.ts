@@ -63,7 +63,23 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     return id;
   }
   async updateHolding(h: Holding): Promise<void> {
-    await db.holdings.put({ ...h, updatedAt: new Date().toISOString() });
+    const existing = await db.holdings.get(h.id);
+    const updatedAt = new Date().toISOString();
+    await db.holdings.put({ ...h, updatedAt });
+
+    if (existing && existing.purchaseDate !== h.purchaseDate) {
+      const transactions = await db.transactions.where('holdingId').equals(h.id).sortBy('dateISO');
+      const baseline = transactions.find((tx) => tx.dateISO === existing.purchaseDate);
+      if (baseline) {
+        await db.transactions.put({ ...baseline, dateISO: h.purchaseDate });
+      }
+
+      const pricePoints = await db.pricePoints.where('holdingId').equals(h.id).sortBy('dateISO');
+      const firstPrice = pricePoints.find((point) => point.dateISO === existing.purchaseDate);
+      if (firstPrice) {
+        await db.pricePoints.put({ ...firstPrice, dateISO: h.purchaseDate });
+      }
+    }
   }
   async softDeleteHolding(id: string): Promise<void> {
     const h = await db.holdings.get(id);

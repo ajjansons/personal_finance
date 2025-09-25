@@ -13,11 +13,11 @@ import Label from '@/components/ui/Label';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { useQuotes } from '@/hooks/useQuotes';
 import { convert, useUsdEurRate } from '@/lib/fx/twelveDataFx';
+import { computeHoldingValuation, normalizeCurrency } from '@/lib/calculations';
 import { useUIStore } from '@/lib/state/uiStore';
 import { formatCurrency } from '@/lib/utils/date';
 
 const TYPES = ['stock', 'crypto', 'cash', 'real_estate', 'other'] as const;
-const normalizeCurrency = (code: string | undefined): 'USD' | 'EUR' => (code && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
 
 export default function Holdings() {
   const { data = [], createHolding, updateHolding, softDeleteHolding } = useHoldings();
@@ -49,20 +49,38 @@ export default function Holdings() {
     const filtered = activeHoldings
       .filter((h) => (typeFilter ? h.type === typeFilter : true))
       .filter((h) => (categoryFilter ? (h.categoryId || '') === categoryFilter : true));
-    const augmented = filtered.map((h) => ({
-      ...h,
-      marketValue: (h.type === 'cash' || h.type === 'real_estate')
-        ? (typeof (h as any).buyValue === 'number' ? (h as any).buyValue : h.units * h.pricePerUnit)
-        : h.units * h.pricePerUnit
-    }));
-    augmented.sort((a, b) => {
-      const dir = sortDir === 'asc' ? 1 : -1;
-      if (sortBy === 'value') return dir * ((a.marketValue || 0) - (b.marketValue || 0));
-      // date: createdAt ISO strings compare lexicographically
-      return dir * (a.createdAt.localeCompare(b.createdAt));
+
+    const mapped = filtered.map((holding) => {
+      const quoteKey = `${holding.type}:${(holding.symbol || '').toUpperCase()}`;
+      const quote = quotes[quoteKey];
+      const valuation = computeHoldingValuation(holding, {
+        quote: quote ? { price: quote.price, currency: quote.currency } : undefined,
+        targetCurrency: displayCurrency,
+        usdToEurRate: rate
+      });
+
+      return {
+        ...holding,
+        priceDisplay: valuation.unitPriceTarget,
+        costBasisDisplay: valuation.costBasisTarget,
+        currentValueDisplay: valuation.currentValueTarget,
+        gainDisplay: valuation.gainTarget,
+        gainPercent: valuation.gainPercent,
+        holdingCurrency: valuation.holdingCurrency,
+        dailyChangePercent: quote?.changePercent
+      };
     });
-    return augmented;
-  }, [activeHoldings, typeFilter, categoryFilter, sortBy, sortDir]);
+
+    const sorted = [...mapped].sort((a, b) => {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      if (sortBy === 'value') {
+        return dir * (a.currentValueDisplay - b.currentValueDisplay);
+      }
+      return dir * a.createdAt.localeCompare(b.createdAt);
+    });
+
+    return sorted;
+  }, [activeHoldings, typeFilter, categoryFilter, sortBy, sortDir, quotes, displayCurrency, rate]);
 
   const totalDeposits = useMemo(() => {
     return (categories || []).reduce((sum, category) => {
@@ -74,23 +92,8 @@ export default function Holdings() {
   }, [categories, displayCurrency, rate]);
 
   const totalCurrentValue = useMemo(() => {
-    return activeHoldings.reduce((sum, h) => {
-      const holdingCurrency = normalizeCurrency(h.currency);
-      if (h.type === 'cash' || h.type === 'real_estate') {
-        const base = typeof h.buyValue === 'number' ? h.buyValue : (h.units || 0) * (h.pricePerUnit || 0);
-        return sum + convert(base, holdingCurrency, displayCurrency, rate);
-      }
-      const units = h.units || 0;
-      if (units <= 0) return sum;
-      const key = `${h.type}:${(h.symbol || '').toUpperCase()}`;
-      const q = quotes[key];
-      const priceInHolding = q && isFinite(q.price)
-        ? (q.currency === holdingCurrency ? q.price : convert(q.price, q.currency, holdingCurrency, rate))
-        : (h.pricePerUnit || 0);
-      const current = priceInHolding * units;
-      return sum + convert(current, holdingCurrency, displayCurrency, rate);
-    }, 0);
-  }, [activeHoldings, quotes, displayCurrency, rate]);
+    return rows.reduce((sum, row) => sum + row.currentValueDisplay, 0);
+  }, [rows]);
 
   const totalReturn = totalCurrentValue - totalDeposits;
   const totalReturnPct = totalDeposits > 0 ? (totalReturn / totalDeposits) * 100 : null;
@@ -183,6 +186,8 @@ export default function Holdings() {
         </div>
         <HoldingsTable
           data={rows}
+          displayCurrency={displayCurrency}
+          totalCurrentValue={totalCurrentValue}
           onEdit={(h) => { setEditing(h); setEditOpen(true); }}
           onDelete={async (id) => { await softDeleteHolding(id); setFlash('Holding removed.'); setTimeout(() => setFlash(null), 2000); }}
           onAdd={(h) => { setAdjustingBase(h); setAdjustMode('add'); setAdjustOpen(true); setAdjustDate(today); setAdjustQty(0); setAdjustPrice(0); }}
@@ -204,7 +209,7 @@ export default function Holdings() {
         {adjustingBase && (
           <div className="grid gap-3">
             <div className="text-sm text-slate-400">
-              {adjustingBase.name} — {adjustingBase.type}
+              {adjustingBase.name} ï¿½ {adjustingBase.type}
             </div>
             <div className="flex gap-2">
               <Button

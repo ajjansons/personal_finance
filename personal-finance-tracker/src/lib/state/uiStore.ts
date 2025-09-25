@@ -13,6 +13,8 @@ type UIState = {
   setCompact: (b: boolean) => void;
   displayCurrency: 'USD' | 'EUR';
   setDisplayCurrency: (c: 'USD' | 'EUR') => void;
+  usdToEurRate: number;
+  setUsdToEurRate: (rate: number) => void;
   aiProvider: AiProvider | null;
   modelByFeature: ModelByFeature;
   setAiProvider: (provider: AiProvider | null) => void;
@@ -68,6 +70,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   setCompact: (compactTables) => set({ compactTables }),
   displayCurrency: 'EUR',
   setDisplayCurrency: (displayCurrency) => set({ displayCurrency }),
+  usdToEurRate: 1,
+  setUsdToEurRate: (usdToEurRate) =>
+    set((state) => ({
+      usdToEurRate: usdToEurRate > 0 && isFinite(usdToEurRate) ? usdToEurRate : state.usdToEurRate
+    })),
   aiProvider: 'openai',
   modelByFeature: { ...AI_DEFAULTS.openai },
   setAiProvider: (provider) => {

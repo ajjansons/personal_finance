@@ -1,11 +1,14 @@
 import { z } from 'zod';
 import { getRepository } from '@/lib/repository';
 import {
-  calcMarketValue,
-  computeAllocationsByCategory,
-  computeAllocationsByType,
+  computeHoldingValuation,
   computePortfolioSeries
 } from '@/lib/calculations';
+import type { HoldingValuation } from '@/lib/calculations';
+import type { FiatCurrency, Holding } from '@/lib/repository/types';
+import { useUIStore } from '@/lib/state/uiStore';
+import { chainProvider } from '@/lib/market-data/chainProvider';
+import { convert } from '@/lib/fx/twelveDataFx';
 import type { AiUsage } from '@/ai/types';
 
 export type ToolExecutionSuccess<TData = unknown> = {
@@ -56,6 +59,73 @@ const priceHistorySchema = z.object({
   range: z.enum(['1w', '1m', '3m', '6m', '1y', 'max']).optional()
 });
 
+type QuoteSnapshot = {
+  price: number;
+  currency: FiatCurrency;
+  changePercent?: number;
+};
+
+function makeQuoteKey(holding: Pick<Holding, 'type' | 'symbol'>) {
+  return `${holding.type}:${(holding.symbol || '').toUpperCase()}`;
+}
+
+async function fetchQuoteSnapshots(holdings: Holding[]): Promise<Record<string, QuoteSnapshot>> {
+  const targets = Array.from(
+    new Set(
+      holdings
+        .filter((holding) => !holding.isDeleted && (holding.type === 'stock' || holding.type === 'crypto') && holding.symbol)
+        .map((holding) => makeQuoteKey(holding))
+    )
+  );
+
+  if (targets.length === 0) return {};
+
+  const map: Record<string, QuoteSnapshot> = {};
+  await Promise.all(
+    targets.map(async (key) => {
+      const [type, symbol] = key.split(':');
+      try {
+        const quote = await chainProvider.getQuote(symbol, type as 'stock' | 'crypto');
+        map[key] = {
+          price: quote.price,
+          currency: quote.currency,
+          changePercent: quote.changePercent
+        };
+      } catch (error) {
+        console.warn('[ai-tools] quote fetch failed', { key, error });
+      }
+    })
+  );
+  return map;
+}
+
+function buildValuations(
+  holdings: Holding[],
+  options: { quotes: Record<string, QuoteSnapshot | undefined>; targetCurrency: FiatCurrency; usdToEurRate: number }
+) {
+  return holdings.map((holding) => {
+    const quoteKey = makeQuoteKey(holding);
+    const snapshot = options.quotes[quoteKey];
+    const valuation = computeHoldingValuation(holding, {
+      quote: snapshot ? { price: snapshot.price, currency: snapshot.currency } : undefined,
+      targetCurrency: options.targetCurrency,
+      usdToEurRate: options.usdToEurRate
+    });
+    return { holding, valuation, quote: snapshot } as {
+      holding: Holding;
+      valuation: HoldingValuation;
+      quote?: QuoteSnapshot;
+    };
+  });
+}
+
+function getAiCurrencyConfig(): { targetCurrency: FiatCurrency; usdToEurRate: number } {
+  const state = useUIStore.getState();
+  const targetCurrency = state.displayCurrency ?? 'EUR';
+  const usdToEurRate = state.usdToEurRate && state.usdToEurRate > 0 ? state.usdToEurRate : 1;
+  return { targetCurrency, usdToEurRate };
+}
+
 const portfolioSnapshotTool = defineTool({
   name: 'get_portfolio_snapshot',
   description:
@@ -76,17 +146,47 @@ const portfolioSnapshotTool = defineTool({
     ]);
 
     const activeHoldings = holdings.filter((holding) => !holding.isDeleted);
-    const allocationsByType = computeAllocationsByType(activeHoldings);
-    const allocationsByCategory = computeAllocationsByCategory(activeHoldings, categories);
-    const portfolioSeries = computePortfolioSeries(activeHoldings, pricePoints, transactions);
+    const { targetCurrency, usdToEurRate } = getAiCurrencyConfig();
+    const quotes = await fetchQuoteSnapshots(activeHoldings);
+    const valuations = buildValuations(activeHoldings, {
+      quotes,
+      targetCurrency,
+      usdToEurRate
+    });
 
-    const totalMarketValue = allocationsByType.reduce((sum, entry) => sum + entry.value, 0);
-    const totalCostBasis = activeHoldings.reduce((sum, holding) => {
-      const basis = typeof holding.buyValue === 'number' ? holding.buyValue : holding.units * holding.pricePerUnit;
-      return sum + basis;
-    }, 0);
+    const totalMarketValue = valuations.reduce((sum, entry) => sum + entry.valuation.currentValueTarget, 0);
+    const totalCostBasis = valuations.reduce((sum, entry) => sum + entry.valuation.costBasisTarget, 0);
     const unrealizedPnlValue = totalMarketValue - totalCostBasis;
     const unrealizedPnlPercent = totalCostBasis ? unrealizedPnlValue / totalCostBasis : null;
+
+    const byType = new Map<string, number>();
+    valuations.forEach(({ holding, valuation }) => {
+      byType.set(holding.type, (byType.get(holding.type) || 0) + valuation.currentValueTarget);
+    });
+    const allocationsByType = Array.from(byType.entries()).map(([name, value]) => ({
+      name,
+      value,
+      percent: totalMarketValue ? value / totalMarketValue : 0
+    }));
+
+    const categoryNames = new Map(categories.map((category) => [category.id, category.name]));
+    const byCategory = new Map<string, number>();
+    valuations.forEach(({ holding, valuation }) => {
+      const key = categoryNames.get(holding.categoryId || '') || 'Uncategorized';
+      byCategory.set(key, (byCategory.get(key) || 0) + valuation.currentValueTarget);
+    });
+    const allocationsByCategory = Array.from(byCategory.entries()).map(([name, value]) => ({
+      name,
+      value,
+      percent: totalMarketValue ? value / totalMarketValue : 0
+    }));
+
+    const portfolioSeries = computePortfolioSeries(activeHoldings, pricePoints, transactions, {
+      targetCurrency,
+      usdToEurRate,
+      quotes
+    });
+
     const lastUpdatedAt = activeHoldings.reduce<string | null>((latest, holding) => {
       const candidate = holding.updatedAt ?? holding.createdAt;
       if (!candidate) return latest;
@@ -103,7 +203,8 @@ const portfolioSnapshotTool = defineTool({
       allocationsByType,
       allocationsByCategory,
       portfolioSeries,
-      lastUpdatedAt
+      lastUpdatedAt,
+      displayCurrency: targetCurrency
     };
 
     return {
@@ -114,8 +215,8 @@ const portfolioSnapshotTool = defineTool({
         'repository:getCategories',
         'repository:getAllPricePoints',
         'repository:getAllTransactions',
-        'calculations:computeAllocationsByType',
-        'calculations:computeAllocationsByCategory',
+        'market-data:chainProvider',
+        'calculations:computeHoldingValuation',
         'calculations:computePortfolioSeries'
       ]
     } satisfies ToolExecutionSuccess;
@@ -147,8 +248,20 @@ const holdingsTool = defineTool({
     const repo = getRepository();
     const includeDeleted = input.filter?.includeDeleted ?? false;
     const holdings = await repo.getHoldings({ includeDeleted });
+    const { targetCurrency, usdToEurRate } = getAiCurrencyConfig();
+    const quotes = await fetchQuoteSnapshots(holdings);
+    const valuations = buildValuations(holdings, {
+      quotes,
+      targetCurrency,
+      usdToEurRate
+    });
 
-    const filtered = holdings.filter((holding) => {
+    const totalActiveValue = valuations.reduce((sum, entry) => {
+      if (entry.holding.isDeleted && !includeDeleted) return sum;
+      return sum + entry.valuation.currentValueTarget;
+    }, 0);
+
+    const filtered = valuations.filter(({ holding }) => {
       if (!includeDeleted && holding.isDeleted) return false;
       if (input.filter?.type && holding.type !== input.filter.type) return false;
       if (input.filter?.categoryId && holding.categoryId !== input.filter.categoryId) return false;
@@ -159,14 +272,9 @@ const holdingsTool = defineTool({
       return true;
     });
 
-    const totalMarketValue = filtered.reduce((sum, holding) => sum + calcMarketValue(holding), 0);
-
     const data = filtered
-      .map((holding) => {
-        const marketValue = calcMarketValue(holding);
-        const costBasis = typeof holding.buyValue === 'number' ? holding.buyValue : holding.units * holding.pricePerUnit;
-        const pnlValue = marketValue - costBasis;
-        const pnlPercent = costBasis ? pnlValue / costBasis : null;
+      .map(({ holding, valuation, quote }) => {
+        const pnlPercent = valuation.gainPercent != null ? valuation.gainPercent / 100 : null;
         return {
           id: holding.id,
           name: holding.name,
@@ -174,6 +282,7 @@ const holdingsTool = defineTool({
           type: holding.type,
           units: holding.units,
           pricePerUnit: holding.pricePerUnit,
+          pricePerUnitDisplay: valuation.unitPriceTarget,
           currency: holding.currency,
           categoryId: holding.categoryId ?? null,
           purchaseDate: holding.purchaseDate,
@@ -182,11 +291,14 @@ const holdingsTool = defineTool({
           createdAt: holding.createdAt,
           updatedAt: holding.updatedAt,
           deleted: holding.isDeleted,
-          marketValue,
-          costBasis,
-          unrealizedPnlValue: pnlValue,
+          marketValue: valuation.currentValueTarget,
+          costBasis: valuation.costBasisTarget,
+          unrealizedPnlValue: valuation.gainTarget,
           unrealizedPnlPercent: pnlPercent,
-          portfolioWeight: totalMarketValue ? marketValue / totalMarketValue : 0
+          portfolioWeight: totalActiveValue ? valuation.currentValueTarget / totalActiveValue : 0,
+          dailyChangePercent: quote?.changePercent ?? null,
+          displayCurrency: targetCurrency,
+          usedQuote: valuation.usedQuote
         };
       })
       .sort((a, b) => b.marketValue - a.marketValue);
@@ -194,7 +306,7 @@ const holdingsTool = defineTool({
     return {
       success: true,
       data,
-      data_provenance: ['repository:getHoldings', 'calculations:calcMarketValue']
+      data_provenance: ['repository:getHoldings', 'market-data:chainProvider', 'calculations:computeHoldingValuation']
     } satisfies ToolExecutionSuccess;
   }
 });
@@ -230,16 +342,29 @@ const holdingDetailsTool = defineTool({
     ]);
 
     const categoryName = categories.find((category) => category.id === holding.categoryId)?.name ?? null;
-    const marketValue = calcMarketValue(holding);
-    const costBasis = typeof holding.buyValue === 'number' ? holding.buyValue : holding.units * holding.pricePerUnit;
-    const pnlValue = marketValue - costBasis;
-    const pnlPercent = costBasis ? pnlValue / costBasis : null;
+    const { targetCurrency, usdToEurRate } = getAiCurrencyConfig();
+    const quotes = await fetchQuoteSnapshots([holding]);
+    const quote = quotes[makeQuoteKey(holding)];
+    const valuation = computeHoldingValuation(holding, {
+      quote: quote ? { price: quote.price, currency: quote.currency } : undefined,
+      targetCurrency,
+      usdToEurRate
+    });
+
+    const holdingCurrency = valuation.holdingCurrency;
     const lastPricePoint = priceHistory[priceHistory.length - 1] ?? null;
     const previousPricePoint = priceHistory.length > 1 ? priceHistory[priceHistory.length - 2] : null;
-    const lastPrice = lastPricePoint?.pricePerUnit ?? holding.pricePerUnit;
-    const previousPrice = previousPricePoint?.pricePerUnit ?? lastPrice;
-    const dayChangeValue = lastPrice - previousPrice;
-    const dayChangePercent = previousPrice ? dayChangeValue / previousPrice : null;
+    const lastPriceHolding = lastPricePoint?.pricePerUnit ?? valuation.unitPriceHolding ?? holding.pricePerUnit;
+    const previousPriceHolding = previousPricePoint?.pricePerUnit ?? lastPriceHolding;
+    const lastPriceDisplay = convert(lastPriceHolding, holdingCurrency, targetCurrency, usdToEurRate);
+    const previousPriceDisplay = convert(previousPriceHolding, holdingCurrency, targetCurrency, usdToEurRate);
+    const dayChangeValue = lastPriceDisplay - previousPriceDisplay;
+    const dayChangePercent = previousPriceDisplay ? dayChangeValue / previousPriceDisplay : null;
+
+    const pricePointsSample = priceHistory.slice(-30).map((point) => ({
+      ...point,
+      pricePerUnitDisplay: convert(point.pricePerUnit, holdingCurrency, targetCurrency, usdToEurRate)
+    }));
 
     const data = {
       holding: {
@@ -255,22 +380,26 @@ const holdingDetailsTool = defineTool({
         purchaseDate: holding.purchaseDate,
         createdAt: holding.createdAt,
         updatedAt: holding.updatedAt,
-        deleted: holding.isDeleted
+        deleted: holding.isDeleted,
+        displayCurrency: targetCurrency
       },
       metrics: {
         units: holding.units,
         pricePerUnit: holding.pricePerUnit,
-        lastPrice,
-        previousPrice,
+        pricePerUnitDisplay: valuation.unitPriceTarget,
+        lastPriceDisplay,
+        previousPriceDisplay,
         dayChangeValue,
         dayChangePercent,
-        marketValue,
-        costBasis,
-        unrealizedPnlValue: pnlValue,
-        unrealizedPnlPercent: pnlPercent
+        marketValue: valuation.currentValueTarget,
+        costBasis: valuation.costBasisTarget,
+        unrealizedPnlValue: valuation.gainTarget,
+        unrealizedPnlPercent: valuation.gainPercent != null ? valuation.gainPercent / 100 : null,
+        usedQuote: valuation.usedQuote,
+        quoteChangePercent: quote?.changePercent ?? null
       },
       recentTransactions: transactions.slice(-10),
-      pricePointsSample: priceHistory.slice(-30)
+      pricePointsSample
     };
 
     return {
@@ -281,7 +410,8 @@ const holdingDetailsTool = defineTool({
         'repository:getCategories',
         'repository:getPriceHistory',
         'repository:getTransactions',
-        'calculations:calcMarketValue'
+        'market-data:chainProvider',
+        'calculations:computeHoldingValuation'
       ]
     } satisfies ToolExecutionSuccess;
   }
