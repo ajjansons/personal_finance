@@ -1,5 +1,14 @@
 import Dexie, { Table } from 'dexie';
-import { AppMeta, Category, Holding, PricePoint, Transaction, ModelPrefs, AiCacheEntry } from './repository/types';
+import {
+  AppMeta,
+  Category,
+  Holding,
+  PricePoint,
+  Transaction,
+  ModelPrefs,
+  AiCacheEntry,
+  PriceAlert
+} from './repository/types';
 import { SCHEMA_VERSION } from './constants';
 
 const normalizeFiat = (code: unknown): 'USD' | 'EUR' => (typeof code === 'string' && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
@@ -12,6 +21,7 @@ export class AppDB extends Dexie {
   appMeta!: Table<AppMeta, string>;
   modelPrefs!: Table<ModelPrefs, string>;
   aiCache!: Table<AiCacheEntry, string>;
+  priceAlerts!: Table<PriceAlert, string>;
 
   constructor() {
     super('personal-finance-tracker');
@@ -114,13 +124,17 @@ export class AppDB extends Dexie {
         categories: 'id, name, sortOrder',
         appMeta: 'id',
         modelPrefs: 'id',
-        aiCache: 'id,&key,createdAt'
+        aiCache: 'id,&key,createdAt',
+        priceAlerts: 'id, holdingId, createdAt'
       })
       .upgrade(async (tx) => {
         const prefsTable = tx.table('modelPrefs');
         const existing = await prefsTable.get('global');
         if (!existing) {
           await prefsTable.put({ id: 'global' });
+        }
+        if (!(await tx.table('priceAlerts').count())) {
+          // no-op placeholder to ensure store exists
         }
       });
   }

@@ -59,6 +59,36 @@ const priceHistorySchema = z.object({
   range: z.enum(['1w', '1m', '3m', '6m', '1y', 'max']).optional()
 });
 
+const whatIfSchema = z.object({
+  holdingId: z.string().min(1),
+  deltaUnits: z.number(),
+  pricePerUnit: z.number().positive().optional()
+});
+
+const rebalancePolicySchema = z
+  .object({
+    method: z.enum(['equal', 'custom']).optional(),
+    targetWeights: z.record(z.string(), z.number().nonnegative()).optional(),
+    minTradeValue: z.number().nonnegative().optional()
+  })
+  .default({});
+
+const addNoteSchema = z.object({
+  holdingId: z.string().min(1),
+  text: z.string().min(1)
+});
+
+const priceAlertRuleSchema = z.object({
+  type: z.enum(['price_above', 'price_below']),
+  price: z.number().positive(),
+  currency: z.enum(['USD', 'EUR']).optional()
+});
+
+const setAlertSchema = z.object({
+  holdingId: z.string().min(1),
+  rule: priceAlertRuleSchema
+});
+
 type QuoteSnapshot = {
   price: number;
   currency: FiatCurrency;
@@ -486,7 +516,271 @@ const priceHistoryTool = defineTool({
   }
 });
 
-const TOOL_DEFINITIONS = [portfolioSnapshotTool, holdingsTool, holdingDetailsTool, priceHistoryTool] as const;
+const whatIfTool = defineTool({
+  name: 'what_if',
+  description: 'Simulate the impact of buying or selling units of a holding without persisting changes.',
+  parameters: {
+    type: 'object',
+    properties: {
+      holdingId: { type: 'string' },
+      deltaUnits: { type: 'number' },
+      pricePerUnit: { type: 'number' }
+    },
+    required: ['holdingId', 'deltaUnits'],
+    additionalProperties: false
+  },
+  schema: whatIfSchema,
+  async execute(input) {
+    const repo = getRepository();
+    const holdings = await repo.getHoldings({ includeDeleted: false });
+    const holding = holdings.find((candidate) => candidate.id === input.holdingId);
+    if (!holding) {
+      return { success: false, error: `Holding ${input.holdingId} not found`, data_provenance: ['repository:getHoldings'] } as ToolExecutionFailure;
+    }
+
+    const { targetCurrency, usdToEurRate } = getAiCurrencyConfig();
+    const quotes = await fetchQuoteSnapshots(holdings);
+    const valuations = buildValuations(holdings, { quotes, targetCurrency, usdToEurRate });
+
+    const beforePortfolio = valuations.reduce((sum, entry) => sum + entry.valuation.currentValueTarget, 0);
+    const currentValuation = valuations.find((entry) => entry.holding.id === holding.id)?.valuation;
+    if (!currentValuation) {
+      return { success: false, error: 'Unable to compute holding valuation.', data_provenance: ['repository:getHoldings'] };
+    }
+
+    const isAmount = holding.type === 'cash' || holding.type === 'real_estate';
+    const newUnits = isAmount ? holding.units : holding.units + input.deltaUnits;
+    if (!isAmount && newUnits < 0) {
+      return { success: false, error: 'Resulting units would be negative. Adjust deltaUnits.', data_provenance: [] };
+    }
+
+    const quoteKey = makeQuoteKey(holding);
+    const quote = quotes[quoteKey];
+    const holdingCurrency = currentValuation.holdingCurrency;
+    const inferredPriceHolding = (() => {
+      if (typeof input.pricePerUnit === 'number') return input.pricePerUnit;
+      if (quote) {
+        return convert(quote.price, quote.currency, holdingCurrency, usdToEurRate);
+      }
+      return currentValuation.unitPriceHolding ?? holding.pricePerUnit;
+    })();
+
+    let afterHoldingValueHolding: number;
+    if (isAmount) {
+      afterHoldingValueHolding = currentValuation.currentValueHolding + input.deltaUnits;
+    } else {
+      afterHoldingValueHolding = (newUnits) * (inferredPriceHolding ?? holding.pricePerUnit);
+    }
+    const afterHoldingValueTarget = convert(afterHoldingValueHolding, holdingCurrency, targetCurrency, usdToEurRate);
+
+    const beforeHoldingTarget = currentValuation.currentValueTarget;
+    const afterPortfolio = beforePortfolio - beforeHoldingTarget + afterHoldingValueTarget;
+
+    return {
+      success: true,
+      data: {
+        holdingId: holding.id,
+        deltaUnits: input.deltaUnits,
+        pricePerUnitUsed: inferredPriceHolding,
+        currency: targetCurrency,
+        before: {
+          holdingValue: beforeHoldingTarget,
+          portfolioValue: beforePortfolio
+        },
+        after: {
+          holdingValue: afterHoldingValueTarget,
+          portfolioValue: afterPortfolio
+        },
+        difference: {
+          holdingValue: afterHoldingValueTarget - beforeHoldingTarget,
+          portfolioValue: afterPortfolio - beforePortfolio
+        }
+      },
+      data_provenance: ['repository:getHoldings', 'market-data:chainProvider', 'calculations:computeHoldingValuation']
+    } satisfies ToolExecutionSuccess;
+  }
+});
+
+const suggestRebalanceTool = defineTool({
+  name: 'suggest_rebalance',
+  description: 'Suggest a set of trades to achieve target portfolio weights without executing them.',
+  parameters: {
+    type: 'object',
+    properties: {
+      policy: {
+        type: 'object',
+        additionalProperties: true
+      }
+    },
+    additionalProperties: false
+  },
+  schema: z.object({ policy: rebalancePolicySchema }).default({ policy: {} as any }),
+  async execute(input) {
+    const repo = getRepository();
+    const holdings = await repo.getHoldings({ includeDeleted: false });
+    if (holdings.length === 0) {
+      return { success: false, error: 'No holdings available to rebalance.', data_provenance: ['repository:getHoldings'] };
+    }
+
+    const { targetCurrency, usdToEurRate } = getAiCurrencyConfig();
+    const quotes = await fetchQuoteSnapshots(holdings);
+    const valuations = buildValuations(holdings, { quotes, targetCurrency, usdToEurRate });
+    const totalValue = valuations.reduce((sum, entry) => sum + entry.valuation.currentValueTarget, 0);
+    if (totalValue === 0) {
+      return { success: false, error: 'Portfolio total value is zero; cannot compute rebalance.', data_provenance: ['repository:getHoldings'] };
+    }
+
+    const method = input.policy.method ?? (input.policy.targetWeights ? 'custom' : 'equal');
+    const minTradeValue = input.policy.minTradeValue ?? 1;
+
+    let targetWeights: Record<string, number> = {};
+    if (method === 'custom' && input.policy.targetWeights) {
+      const raw = input.policy.targetWeights;
+      const sum = Object.values(raw).reduce((acc, value) => acc + value, 0);
+      if (sum <= 0) {
+        return { success: false, error: 'Custom targetWeights must sum to a positive number.', data_provenance: [] };
+      }
+      targetWeights = Object.fromEntries(
+        holdings.map((holding) => {
+          const weight = raw[holding.id] ?? 0;
+          return [holding.id, weight / sum];
+        })
+      );
+    } else {
+      const equalWeight = 1 / holdings.length;
+      targetWeights = Object.fromEntries(holdings.map((holding) => [holding.id, equalWeight]));
+    }
+
+    const trades = valuations.map(({ holding, valuation }) => {
+      const targetWeight = targetWeights[holding.id] ?? 0;
+      const targetValue = targetWeight * totalValue;
+      const diffValue = targetValue - valuation.currentValueTarget;
+      const action = diffValue > minTradeValue ? 'buy' : diffValue < -minTradeValue ? 'sell' : 'hold';
+      let deltaUnits = 0;
+      if (action !== 'hold') {
+        if (holding.type === 'cash' || holding.type === 'real_estate') {
+          deltaUnits = diffValue;
+        } else {
+          const unitPrice = valuation.unitPriceTarget ?? convert(valuation.unitPriceHolding ?? holding.pricePerUnit, valuation.holdingCurrency, targetCurrency, usdToEurRate);
+          deltaUnits = unitPrice ? diffValue / unitPrice : 0;
+        }
+      }
+      return {
+        holdingId: holding.id,
+        action,
+        deltaValue: diffValue,
+        deltaUnits,
+        targetValue,
+        currentValue: valuation.currentValueTarget
+      };
+    });
+
+    const summary = trades.reduce(
+      (acc, trade) => {
+        if (trade.action === 'buy') acc.totalBuy += trade.deltaValue;
+        if (trade.action === 'sell') acc.totalSell += Math.abs(trade.deltaValue);
+        return acc;
+      },
+      { totalBuy: 0, totalSell: 0 }
+    );
+
+    return {
+      success: true,
+      data: {
+        currency: targetCurrency,
+        targetWeights,
+        trades,
+        summary
+      },
+      data_provenance: ['repository:getHoldings', 'market-data:chainProvider', 'calculations:computeHoldingValuation']
+    } satisfies ToolExecutionSuccess;
+  }
+});
+
+const addNoteTool = defineTool({
+  name: 'add_note',
+  description: 'Append a text note to the specified holding.',
+  parameters: {
+    type: 'object',
+    properties: {
+      holdingId: { type: 'string' },
+      text: { type: 'string' }
+    },
+    required: ['holdingId', 'text'],
+    additionalProperties: false
+  },
+  schema: addNoteSchema,
+  async execute(input) {
+    const repo = getRepository();
+    try {
+      const updated = await repo.appendHoldingNote(input.holdingId, input.text);
+      return {
+        success: true,
+        data: { holdingId: input.holdingId, notes: updated.notes ?? '' },
+        data_provenance: ['repository:appendHoldingNote']
+      } satisfies ToolExecutionSuccess;
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message ?? 'Failed to append note.',
+        data_provenance: ['repository:appendHoldingNote']
+      } satisfies ToolExecutionFailure;
+    }
+  }
+});
+
+const setAlertTool = defineTool({
+  name: 'set_alert',
+  description: 'Create a local price alert for a holding.',
+  parameters: {
+    type: 'object',
+    properties: {
+      holdingId: { type: 'string' },
+      rule: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['price_above', 'price_below'] },
+          price: { type: 'number' },
+          currency: { type: 'string', enum: ['USD', 'EUR'] }
+        },
+        required: ['type', 'price'],
+        additionalProperties: false
+      }
+    },
+    required: ['holdingId', 'rule'],
+    additionalProperties: false
+  },
+  schema: setAlertSchema,
+  async execute(input) {
+    const repo = getRepository();
+    try {
+      const id = await repo.createPriceAlert({ holdingId: input.holdingId, rule: input.rule });
+      const alerts = await repo.getPriceAlerts(input.holdingId);
+      return {
+        success: true,
+        data: { alertId: id, alerts },
+        data_provenance: ['repository:createPriceAlert', 'repository:getPriceAlerts']
+      } satisfies ToolExecutionSuccess;
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message ?? 'Failed to create price alert.',
+        data_provenance: ['repository:createPriceAlert']
+      } satisfies ToolExecutionFailure;
+    }
+  }
+});
+
+const TOOL_DEFINITIONS = [
+  portfolioSnapshotTool,
+  holdingsTool,
+  holdingDetailsTool,
+  priceHistoryTool,
+  whatIfTool,
+  suggestRebalanceTool,
+  addNoteTool,
+  setAlertTool
+] as const;
 const TOOL_MAP = new Map(TOOL_DEFINITIONS.map((tool) => [tool.name, tool]));
 
 export type SupportedToolName = (typeof TOOL_DEFINITIONS)[number]['name'];

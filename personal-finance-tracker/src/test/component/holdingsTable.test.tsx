@@ -11,6 +11,7 @@ describe('HoldingsTable', () => {
       gainDisplay: number;
       gainPercent: number | null;
       dailyChangePercent?: number;
+      holdingCurrency: 'USD' | 'EUR';
     })[] = [
       {
         id: '1',
@@ -28,7 +29,8 @@ describe('HoldingsTable', () => {
         currentValueDisplay: 100,
         gainDisplay: 20,
         gainPercent: 25,
-        dailyChangePercent: 1.2
+        dailyChangePercent: 1.2,
+        holdingCurrency: 'EUR'
       } as any,
       {
         id: '2',
@@ -46,7 +48,8 @@ describe('HoldingsTable', () => {
         currentValueDisplay: 100,
         gainDisplay: 40,
         gainPercent: 66.67,
-        dailyChangePercent: -0.5
+        dailyChangePercent: -0.5,
+        holdingCurrency: 'EUR'
       } as any
     ];
     const totalCurrentValue = rows.reduce((sum, row) => sum + row.currentValueDisplay, 0);

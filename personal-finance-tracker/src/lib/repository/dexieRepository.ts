@@ -12,7 +12,9 @@ import {
   PortfolioRepository,
   PricePoint,
   PricePointCreate,
-  Transaction
+  Transaction,
+  PriceAlert,
+  PriceAlertCreate
 } from './types';
 
 const normalizeFiat = (code: string | undefined): 'USD' | 'EUR' => (code && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
@@ -152,6 +154,48 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     await db.modelPrefs.put({ ...prefs, id: MODEL_PREFS_ID });
   }
 
+  async appendHoldingNote(holdingId: string, text: string): Promise<Holding> {
+    const trimmed = (text ?? '').trim();
+    if (!trimmed) {
+      throw new Error('Note text is required.');
+    }
+    const holding = await db.holdings.get(holdingId);
+    if (!holding) {
+      throw new Error(`Holding ${holdingId} not found`);
+    }
+    const timestamp = new Date().toISOString();
+    const entry = `[${timestamp}] ${trimmed}`;
+    const notes = holding.notes && holding.notes.trim().length
+      ? `${holding.notes}\n${entry}`
+      : entry;
+    const updated: Holding = { ...holding, notes, updatedAt: timestamp };
+    await db.holdings.put(updated);
+    return updated;
+  }
+
+  async createPriceAlert(payload: PriceAlertCreate): Promise<string> {
+    const id = nanoid('alert-');
+    const record: PriceAlert = {
+      id,
+      holdingId: payload.holdingId,
+      rule: payload.rule,
+      createdAt: new Date().toISOString(),
+    };
+    await db.priceAlerts.put(record);
+    return id;
+  }
+
+  async getPriceAlerts(holdingId?: string): Promise<PriceAlert[]> {
+    if (holdingId) {
+      return db.priceAlerts.where('holdingId').equals(holdingId).sortBy('createdAt');
+    }
+    return db.priceAlerts.orderBy('createdAt').toArray();
+  }
+
+  async deletePriceAlert(id: string): Promise<void> {
+    await db.priceAlerts.delete(id);
+  }
+
   async aiCacheGet(key: string): Promise<AiCacheEntry | undefined> {
     const entry = await db.aiCache.where('key').equals(key).first();
     if (!entry) return undefined;
@@ -188,28 +232,32 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     return expiredKeys.length;
   }
   async exportAll(): Promise<ExportBundle> {
-    const [holdings, categories, pricePoints, modelPrefs, aiCache] = await Promise.all([
+    const [holdings, categories, pricePoints, modelPrefs, aiCache, priceAlerts] = await Promise.all([
       db.holdings.toArray(),
       db.categories.toArray(),
       db.pricePoints.toArray(),
       db.modelPrefs.get(MODEL_PREFS_ID),
-      db.aiCache.toArray()
+      db.aiCache.toArray(),
+      db.priceAlerts.toArray()
     ]);
     const payload: ExportBundle = {
       holdings,
       categories,
       pricePoints,
       modelPrefs: modelPrefs ?? null,
-      aiCache
+      aiCache,
+      priceAlerts
     };
     return payload;
   }
 
   async importAll(payload: ImportBundle): Promise<void> {
-    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.modelPrefs, db.aiCache], async () => {
+    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.modelPrefs, db.aiCache, db.priceAlerts], async () => {
       await db.holdings.clear();
       await db.categories.clear();
       await db.pricePoints.clear();
+      await db.transactions.clear();
+      await db.priceAlerts.clear();
       const today = new Date().toISOString().slice(0, 10);
       const holdingsWithDate = payload.holdings.map((h) => ({
         ...h,
@@ -218,6 +266,21 @@ export class DexiePortfolioRepository implements PortfolioRepository {
       await db.holdings.bulkPut(holdingsWithDate as any);
       await db.categories.bulkPut(payload.categories);
       await db.pricePoints.bulkPut(payload.pricePoints);
+
+      // Recreate baseline transactions for imported holdings lacking entries
+      const trxTable = db.transactions;
+      for (const holding of holdingsWithDate) {
+        const isAmount = holding.type === 'cash' || holding.type === 'real_estate';
+        const baseAmount = typeof holding.buyValue === 'number' ? holding.buyValue : ((holding.units || 0) * (holding.pricePerUnit || 0));
+        const deltaUnits = isAmount ? baseAmount : (holding.units || 0);
+        await trxTable.put({
+          id: nanoid('tx-'),
+          holdingId: holding.id,
+          dateISO: holding.purchaseDate,
+          deltaUnits,
+          pricePerUnit: isAmount ? undefined : holding.pricePerUnit
+        } as any);
+      }
 
       if (Object.prototype.hasOwnProperty.call(payload, 'modelPrefs')) {
         const prefs = payload.modelPrefs;
@@ -234,14 +297,24 @@ export class DexiePortfolioRepository implements PortfolioRepository {
           await db.aiCache.bulkPut(payload.aiCache as AiCacheEntry[]);
         }
       }
+
+      if (payload.priceAlerts && payload.priceAlerts.length) {
+        await db.priceAlerts.bulkPut(payload.priceAlerts as PriceAlert[]);
+      }
     });
   }
 
   async clearAll(): Promise<void> {
-    await db.transaction('rw', db.holdings, db.categories, db.pricePoints, async () => {
+    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.priceAlerts], async () => {
       await db.holdings.clear();
       await db.categories.clear();
       await db.pricePoints.clear();
+      await db.transactions.clear();
+      await db.priceAlerts.clear();
     });
   }
 }
+
+
+
+

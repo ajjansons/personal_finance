@@ -28,11 +28,18 @@ export function useHoldings() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['holdings'] })
   });
 
+  const appendNote = useMutation({
+    mutationFn: ({ holdingId, text }: { holdingId: string; text: string }) =>
+      repo.appendHoldingNote(holdingId, text),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['holdings'] })
+  });
+
   return {
     data: holdingsQ.data,
     isLoading: holdingsQ.isLoading,
     createHolding: create.mutateAsync,
     updateHolding: update.mutateAsync,
-    softDeleteHolding: softDelete.mutateAsync
+    softDeleteHolding: softDelete.mutateAsync,
+    appendNote: appendNote.mutateAsync
   };
 }

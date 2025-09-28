@@ -9,7 +9,9 @@ import {
   ImportBundle,
   PortfolioRepository,
   PricePoint,
-  PricePointCreate
+  PricePointCreate,
+  PriceAlert,
+  PriceAlertCreate
 } from './types';
 
 export class CloudPortfolioRepository implements PortfolioRepository {
@@ -40,9 +42,15 @@ export class CloudPortfolioRepository implements PortfolioRepository {
   aiCacheSet(_entry: { key: string; value: unknown; ttlSec: number }): Promise<void> { this.notImplemented(); return Promise.resolve(); }
   aiCachePurgeExpired(): Promise<number> { this.notImplemented(); return Promise.resolve(0); }
 
+  appendHoldingNote(_holdingId: string, _text: string): Promise<Holding> { this.notImplemented(); return Promise.resolve({} as Holding); }
+
+  createPriceAlert(_payload: PriceAlertCreate): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
+  getPriceAlerts(_holdingId?: string): Promise<PriceAlert[]> { this.notImplemented(); return Promise.resolve([]); }
+  deletePriceAlert(_id: string): Promise<void> { this.notImplemented(); return Promise.resolve(); }
+
 
   exportAll(): Promise<ExportBundle> {
-    this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [], modelPrefs: null, aiCache: [] });
+    this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [], modelPrefs: null, aiCache: [], priceAlerts: [] });
   }
   importAll(_payload: ImportBundle): Promise<void> {
     this.notImplemented(); return Promise.resolve();

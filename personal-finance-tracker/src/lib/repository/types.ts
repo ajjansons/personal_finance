@@ -74,9 +74,24 @@ export type AiCacheEntry = {
   ttlSec: number;
 };
 
+export type PriceAlertRule = {
+  type: 'price_above' | 'price_below';
+  price: number;
+  currency?: FiatCurrency;
+};
+
+export type PriceAlert = {
+  id: string;
+  holdingId: string;
+  rule: PriceAlertRule;
+  createdAt: string;
+  lastNotifiedAt?: string;
+};
+
 export type HoldingCreate = Omit<Holding, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted'>;
 export type CategoryCreate = Omit<Category, 'id'>;
 export type PricePointCreate = Omit<PricePoint, 'id'>;
+export type PriceAlertCreate = Omit<PriceAlert, 'id' | 'createdAt' | 'lastNotifiedAt'>;
 
 export type HoldingWithValue = Holding & { marketValue: number };
 
@@ -86,6 +101,7 @@ export type ExportBundle = {
   pricePoints: PricePoint[];
   modelPrefs?: ModelPrefs | null;
   aiCache?: AiCacheEntry[];
+  priceAlerts?: PriceAlert[];
 };
 
 export type ImportBundle = ExportBundle;
@@ -116,6 +132,12 @@ export interface PortfolioRepository {
   aiCacheGet(key: string): Promise<AiCacheEntry | undefined>;
   aiCacheSet(entry: { key: string; value: unknown; ttlSec: number }): Promise<void>;
   aiCachePurgeExpired(): Promise<number>;
+
+  appendHoldingNote(holdingId: string, text: string): Promise<Holding>;
+
+  createPriceAlert(payload: PriceAlertCreate): Promise<string>;
+  getPriceAlerts(holdingId?: string): Promise<PriceAlert[]>;
+  deletePriceAlert(id: string): Promise<void>;
 
   exportAll(): Promise<ExportBundle>;
   importAll(payload: ImportBundle): Promise<void>;

@@ -10,18 +10,31 @@ type HoldingRow = Holding & {
   gainDisplay: number;
   gainPercent: number | null;
   dailyChangePercent?: number;
+  holdingCurrency: 'USD' | 'EUR';
 };
-
 type Props = {
   data: HoldingRow[];
   displayCurrency: 'USD' | 'EUR';
   totalCurrentValue: number;
-  onEdit?: (h: Holding) => void;
+  onExplain?: (h: HoldingRow) => void;
+  onWhatIf?: (h: HoldingRow) => void;
+  onSuggestRebalance?: (h: HoldingRow) => void;
+  onEdit?: (h: HoldingRow) => void;
   onDelete?: (id: string) => void;
-  onAdd?: (h: Holding) => void;
+  onAdd?: (h: HoldingRow) => void;
 };
 
-export default function HoldingsTable({ data, displayCurrency, totalCurrentValue, onEdit, onDelete, onAdd }: Props) {
+export default function HoldingsTable({
+  data,
+  displayCurrency,
+  totalCurrentValue,
+  onExplain,
+  onWhatIf,
+  onSuggestRebalance,
+  onEdit,
+  onDelete,
+  onAdd
+}: Props) {
   return (
     <div className="overflow-x-auto">
       <Table>
@@ -82,10 +95,15 @@ export default function HoldingsTable({ data, displayCurrency, totalCurrentValue
                   );
                 })()}
               </TD>
-              <TD className="space-x-2">
-                <Button variant="ghost" onClick={() => onEdit?.(row)}>Edit</Button>
-                <Button variant="ghost" onClick={() => onAdd?.(row)}>Add/Remove</Button>
-                <Button variant="destructive" onClick={() => onDelete?.(row.id)}>Delete</Button>
+              <TD>
+                <div className="flex flex-wrap gap-1">
+                  <Button variant="ghost" onClick={() => onExplain?.(row)}>Explain</Button>
+                  <Button variant="ghost" onClick={() => onWhatIf?.(row)}>What-if</Button>
+                  <Button variant="ghost" onClick={() => onSuggestRebalance?.(row)}>Suggest rebalance</Button>
+                  <Button variant="ghost" onClick={() => onEdit?.(row)}>Edit</Button>
+                  <Button variant="ghost" onClick={() => onAdd?.(row)}>Add/Remove</Button>
+                  <Button variant="destructive" onClick={() => onDelete?.(row.id)}>Delete</Button>
+                </div>
               </TD>
             </TR>
           ))}
