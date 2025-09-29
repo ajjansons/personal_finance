@@ -14,6 +14,7 @@ import {
   PriceAlertCreate,
   InsightRecord
 } from './types';
+import type { ResearchReport } from '@/features/research/types';
 
 export class CloudPortfolioRepository implements PortfolioRepository {
   private notImplemented() {
@@ -51,7 +52,10 @@ export class CloudPortfolioRepository implements PortfolioRepository {
   saveInsights(_record: Omit<InsightRecord, 'id'>): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
   getInsights(_opts?: { limit?: number }): Promise<InsightRecord[]> { this.notImplemented(); return Promise.resolve([]); }
 
-
+  saveResearchReport(_report: Omit<ResearchReport, 'id'>): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
+  getResearchReport(_id: string): Promise<ResearchReport | null> { this.notImplemented(); return Promise.resolve(null); }
+  getResearchReports(_opts?: { subjectKey?: string; subjectType?: 'holding' | 'sector'; limit?: number }): Promise<ResearchReport[]> { this.notImplemented(); return Promise.resolve([]); }
+  deleteResearchReport(_id: string): Promise<void> { this.notImplemented(); return Promise.resolve(); }
 
   exportAll(): Promise<ExportBundle> {
     this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [], modelPrefs: null, aiCache: [], priceAlerts: [], insights: [] });

@@ -1,3 +1,5 @@
+import type { ResearchReport } from '@/features/research/types';
+
 export type AssetType = 'stock' | 'crypto' | 'cash' | 'real_estate' | 'other';
 export type FiatCurrency = 'USD' | 'EUR';
 
@@ -166,6 +168,15 @@ export interface PortfolioRepository {
   deletePriceAlert(id: string): Promise<void>;
   saveInsights(record: Omit<InsightRecord, 'id'>): Promise<string>;
   getInsights(opts?: { limit?: number }): Promise<InsightRecord[]>;
+
+  saveResearchReport(report: Omit<ResearchReport, 'id'>): Promise<string>;
+  getResearchReport(id: string): Promise<ResearchReport | null>;
+  getResearchReports(opts?: {
+    subjectKey?: string;
+    subjectType?: 'holding' | 'sector';
+    limit?: number;
+  }): Promise<ResearchReport[]>;
+  deleteResearchReport(id: string): Promise<void>;
 
   exportAll(): Promise<ExportBundle>;
   importAll(payload: ImportBundle): Promise<void>;

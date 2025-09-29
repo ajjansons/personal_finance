@@ -20,12 +20,17 @@
     "dexie": "^4.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.26.2",
     "recharts": "^2.12.7",
-    "zustand": "^4.5.4",
-    "zod": "^3.23.8"
+    "rehype-highlight": "^7.0.2",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^3.23.8",
+    "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.47.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",
     "@testing-library/user-event": "^14.5.2",
@@ -40,14 +45,13 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react": "^7.35.0",
     "fake-indexeddb": "^6.0.1",
-    "@playwright/test": "^1.47.2",
+    "jsdom": "^25.0.1",
     "playwright": "^1.47.2",
     "postcss": "^8.4.47",
     "prettier": "^3.3.3",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
     "vite": "^5.4.3",
-    "vitest": "^2.0.5",
-    "jsdom": "^25.0.1"
+    "vitest": "^2.0.5"
   }
 }

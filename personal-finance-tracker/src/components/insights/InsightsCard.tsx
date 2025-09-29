@@ -42,17 +42,26 @@ export default function InsightsCard({ record, isLoading, isRefreshing, onRefres
           <p className="text-xs text-slate-500">Last run {formatTimestamp(record?.createdAt)}</p>
         </div>
         <Button onClick={onRefresh} disabled={isRefreshing} size="sm">
-          {isRefreshing ? "Refreshing…" : "Refresh"}
+          {isRefreshing ? "Refreshingï¿½" : "Refresh"}
         </Button>
       </div>
 
       {isLoading && !record && (
-        <div className="text-sm text-slate-500">Fetching market context…</div>
+        <div className="text-sm text-slate-500">Fetching market contextï¿½</div>
       )}
 
       {!isLoading && !hasInsights && (
         <div className="text-sm text-slate-500">
           No recent news matched your holdings. Try expanding the lookback window or refresh later.
+        </div>
+      )}
+
+      {isRefreshing && (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-blue-300 text-sm">
+          <div className="flex items-center gap-2">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent"></div>
+            <span>Analyzing news from providers and generating insights...</span>
+          </div>
         </div>
       )}
 
@@ -96,7 +105,7 @@ export default function InsightsCard({ record, isLoading, isRefreshing, onRefres
                           disabled={busyActionKey === actionKey}
                           onClick={() => onAction?.(action, item)}
                         >
-                          {busyActionKey === actionKey ? "Working…" : action.label}
+                          {busyActionKey === actionKey ? "Workingï¿½" : action.label}
                         </Button>
                       );
                     })}

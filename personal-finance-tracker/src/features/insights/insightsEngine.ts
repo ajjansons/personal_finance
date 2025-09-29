@@ -39,24 +39,128 @@ type PreparedInsight = {
   baseItem: InsightItem;
 };
 
+const POSITIVE_KEYWORDS = [
+  'partnership', 'acquired', 'acquisition', 'merger', 'revenue growth', 'beat expectations',
+  'exceeds', 'profit', 'gains', 'surge', 'breakthrough', 'expansion', 'launched', 'innovation',
+  'success', 'approved', 'upgrade', 'outperform', 'strong', 'bullish', 'rally', 'soars'
+];
+
+const NEGATIVE_KEYWORDS = [
+  'lawsuit', 'sued', 'investigation', 'downgrade', 'miss', 'misses', 'layoffs', 'bankruptcy',
+  'decline', 'drops', 'plunge', 'falls', 'losses', 'warning', 'concern', 'delays', 'recall',
+  'scandal', 'fraud', 'bearish', 'underperform', 'slump', 'weak', 'disappoints'
+];
+
+const NEUTRAL_KEYWORDS = [
+  'announced', 'scheduled', 'updated', 'reports', 'conference', 'meeting', 'statement',
+  'released', 'filed', 'declared', 'presented'
+];
+
+type KeywordAnalysisResult = {
+  impact: InsightItem['impact'];
+  confidence: number;
+  matchedKeywords: string[];
+};
+
+function analyzeNewsKeywords(title: string, summary: string): KeywordAnalysisResult {
+  const text = `${title} ${summary}`.toLowerCase();
+
+  const positiveMatches: string[] = [];
+  const negativeMatches: string[] = [];
+  const neutralMatches: string[] = [];
+
+  POSITIVE_KEYWORDS.forEach((keyword) => {
+    if (text.includes(keyword.toLowerCase())) {
+      positiveMatches.push(keyword);
+    }
+  });
+
+  NEGATIVE_KEYWORDS.forEach((keyword) => {
+    if (text.includes(keyword.toLowerCase())) {
+      negativeMatches.push(keyword);
+    }
+  });
+
+  NEUTRAL_KEYWORDS.forEach((keyword) => {
+    if (text.includes(keyword.toLowerCase())) {
+      neutralMatches.push(keyword);
+    }
+  });
+
+  const totalMatches = positiveMatches.length + negativeMatches.length + neutralMatches.length;
+
+  // No keywords matched
+  if (totalMatches === 0) {
+    return { impact: 'unclear', confidence: 0.3, matchedKeywords: [] };
+  }
+
+  // Determine dominant sentiment
+  let impact: InsightItem['impact'] = 'neutral';
+  let matchedKeywords: string[] = [];
+
+  if (positiveMatches.length > negativeMatches.length && positiveMatches.length > neutralMatches.length) {
+    impact = 'positive';
+    matchedKeywords = positiveMatches;
+  } else if (negativeMatches.length > positiveMatches.length && negativeMatches.length > neutralMatches.length) {
+    impact = 'negative';
+    matchedKeywords = negativeMatches;
+  } else if (neutralMatches.length > 0 && positiveMatches.length === negativeMatches.length) {
+    impact = 'neutral';
+    matchedKeywords = neutralMatches;
+  } else if (positiveMatches.length > 0 && negativeMatches.length > 0) {
+    // Mixed signals - mark as unclear but with higher confidence
+    impact = 'unclear';
+    matchedKeywords = [...positiveMatches, ...negativeMatches];
+  } else {
+    impact = 'neutral';
+    matchedKeywords = neutralMatches;
+  }
+
+  // Calculate confidence based on keyword strength
+  const dominantCount = matchedKeywords.length;
+  const baseConfidence = Math.min(0.85, 0.4 + (dominantCount * 0.15));
+
+  return { impact, confidence: baseConfidence, matchedKeywords };
+}
+
 function clampConfidence(value: number | undefined): number {
   if (!Number.isFinite(value)) return 0.5;
   return Math.min(1, Math.max(0, Number(value)));
 }
 
-function impactFromSentiment(score?: number): InsightItem['impact'] {
-  if (!Number.isFinite(score as number)) return 'unclear';
-  const value = Number(score);
-  if (value > 0.2) return 'positive';
-  if (value < -0.2) return 'negative';
-  if (Math.abs(value) <= 0.08) return 'neutral';
-  return value > 0 ? 'positive' : 'negative';
+function impactFromSentiment(score?: number, title?: string, summary?: string): InsightItem['impact'] {
+  // If we have a valid sentiment score, use it
+  if (Number.isFinite(score as number)) {
+    const value = Number(score);
+    if (value > 0.2) return 'positive';
+    if (value < -0.2) return 'negative';
+    if (Math.abs(value) <= 0.08) return 'neutral';
+    return value > 0 ? 'positive' : 'negative';
+  }
+
+  // Fallback to keyword analysis
+  if (title || summary) {
+    const analysis = analyzeNewsKeywords(title || '', summary || '');
+    return analysis.impact;
+  }
+
+  return 'unclear';
 }
 
-function confidenceFromSentiment(score?: number): number {
-  if (!Number.isFinite(score as number)) return 0.5;
-  const magnitude = Math.abs(Number(score));
-  return Math.min(0.9, Math.max(0.2, magnitude));
+function confidenceFromSentiment(score?: number, title?: string, summary?: string): number {
+  // If we have a valid sentiment score, calculate confidence from it
+  if (Number.isFinite(score as number)) {
+    const magnitude = Math.abs(Number(score));
+    return Math.min(0.9, Math.max(0.25, magnitude * 1.2));
+  }
+
+  // Fallback to keyword-based confidence
+  if (title || summary) {
+    const analysis = analyzeNewsKeywords(title || '', summary || '');
+    return analysis.confidence;
+  }
+
+  return 0.35;
 }
 
 function defaultActions(item: InsightItem): InsightAction[] {
@@ -172,21 +276,43 @@ async function summariseWithAi(
   }));
 
   const systemPrompt = [
-    'You summarise financial news for a personal portfolio tracker.',
-    'Return strict JSON with schema {"items":[{index,title,summary,impact,confidence,holdingId?,actions?}]}.',
-    'Impact must be positive, negative, neutral, or unclear. Confidence between 0 and 1.',
-    'Only propose actions from: rebalance, set_alert, add_note, open_research.',
-    'Keep each summary under 240 characters and emphasise the key takeaway.',
-    'If unsure about impact, use "unclear" with confidence around 0.4.'
-  ].join(' ');
+    'You are a financial news analyst for a personal portfolio tracker.',
+    'Analyze each news item and determine its impact on the holdings.',
+    '',
+    'CLASSIFICATION RULES:',
+    '- positive: Revenue growth, partnerships, product launches, upgrades, beating expectations, expansion, approvals',
+    '- negative: Lawsuits, downgrades, missing expectations, layoffs, investigations, recalls, warnings, declining performance',
+    '- neutral: Routine announcements, scheduled events, updates without clear directional impact',
+    '- unclear: Mixed signals or insufficient information to determine impact',
+    '',
+    'CONFIDENCE SCORING (0.0 to 1.0):',
+    '- 0.2-0.3: Very uncertain, vague news, minimal details',
+    '- 0.4-0.5: Some uncertainty, general news, indirect relevance',
+    '- 0.6-0.7: Reasonably confident, clear news with direct relevance',
+    '- 0.8-0.9: High confidence, major news with clear implications, well-sourced',
+    '',
+    'ACTIONS (only suggest if highly relevant):',
+    '- rebalance: For significant positive developments that may warrant increasing allocation',
+    '- set_alert: For concerning negative news or volatility indicators',
+    '- add_note: For any noteworthy context worth recording',
+    '- open_research: For major developments requiring deeper investigation',
+    '',
+    'SUMMARY GUIDELINES:',
+    '- Keep under 200 characters',
+    '- Lead with the key takeaway (what happened and why it matters)',
+    '- Focus on portfolio implications',
+    '- Be specific with numbers/percentages when available',
+    '',
+    'Return strict JSON: {"items":[{index,title,summary,impact,confidence,holdingId?,actions?}]}'
+  ].join('\n');
 
-  const userPrompt = `Portfolio news items:\n${JSON.stringify(payload, null, 2)}\nReturn the updated list as JSON.`;
+  const userPrompt = `Analyze these portfolio news items and return the enriched JSON:\n\n${JSON.stringify(payload, null, 2)}`;
 
   const result = await callAi({
     feature: 'insights',
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
-    cacheTtlSec: 60 * 60,
+    cacheTtlSec: 5 * 60, // Reduced to 5 minutes for more real-time insights
     abortSignal: signal
   });
 
@@ -243,8 +369,8 @@ function prepareBaseItems(ranked: RankedInsight[]): PreparedInsight[] {
         name: entry.provider === 'alpha_vantage' ? 'Alpha Vantage' : 'Finnhub',
         url: entry.url
       },
-      impact: impactFromSentiment(entry.sentimentScore),
-      confidence: confidenceFromSentiment(entry.sentimentScore),
+      impact: impactFromSentiment(entry.sentimentScore, entry.title, entry.summary),
+      confidence: confidenceFromSentiment(entry.sentimentScore, entry.title, entry.summary),
       actions: []
     };
     base.actions = defaultActions(base);
@@ -262,13 +388,31 @@ export async function runInsightsJob(options?: { signal?: AbortSignal }): Promis
   const now = new Date();
   const { contexts } = buildHoldingContexts(holdings, state.displayCurrency, state.usdToEurRate || 1);
 
+  const runId = nanoid('ins-run-');
+  const baseRecord = {
+    runId,
+    createdAt: now.toISOString(),
+    displayCurrency: state.displayCurrency,
+    items: [] as InsightItem[]
+  };
+
+  // Build provider calls with individual timeouts
   const providerCalls: Promise<NormalizedProviderInsight[]>[] = [];
 
   if (state.insightsAlphaVantageEnabled) {
     const key = (import.meta.env.VITE_ALPHAVANTAGE_KEY as string | undefined) || undefined;
     if (key) {
+      // Wrap with timeout to prevent hanging
       providerCalls.push(
-        fetchAlphaVantageNews(contexts, { apiKey: key, windowHours: lookbackHours, now, signal: options?.signal })
+        Promise.race([
+          fetchAlphaVantageNews(contexts, { apiKey: key, windowHours: lookbackHours, now, signal: options?.signal }),
+          new Promise<NormalizedProviderInsight[]>((resolve) =>
+            setTimeout(() => {
+              console.warn('[insights] Alpha Vantage timed out after 10s');
+              resolve([]);
+            }, 10000)
+          )
+        ])
       );
     } else {
       console.info('[insights] Alpha Vantage disabled: missing VITE_ALPHAVANTAGE_KEY');
@@ -278,27 +422,29 @@ export async function runInsightsJob(options?: { signal?: AbortSignal }): Promis
   if (state.insightsFinnhubEnabled) {
     const key = (import.meta.env.VITE_FINNHUB_KEY as string | undefined) || undefined;
     if (key) {
+      // Wrap with timeout to prevent hanging
       providerCalls.push(
-        fetchFinnhubNews(contexts, { apiKey: key, windowHours: lookbackHours, now, signal: options?.signal })
+        Promise.race([
+          fetchFinnhubNews(contexts, { apiKey: key, windowHours: lookbackHours, now, signal: options?.signal }),
+          new Promise<NormalizedProviderInsight[]>((resolve) =>
+            setTimeout(() => {
+              console.warn('[insights] Finnhub timed out after 10s');
+              resolve([]);
+            }, 10000)
+          )
+        ])
       );
     } else {
       console.info('[insights] Finnhub disabled: missing VITE_FINNHUB_KEY');
     }
   }
 
-  const runId = nanoid('ins-run-');
-  const baseRecord = {
-    runId,
-    createdAt: now.toISOString(),
-    displayCurrency: state.displayCurrency,
-    items: [] as InsightItem[]
-  };
-
   if (providerCalls.length === 0) {
     const id = await repo.saveInsights(baseRecord);
     return { ...baseRecord, id };
   }
 
+  // Fetch from all providers in parallel with error handling
   const results: NormalizedProviderInsight[] = [];
   const settled = await Promise.allSettled(providerCalls);
   settled.forEach((entry) => {
@@ -324,15 +470,39 @@ export async function runInsightsJob(options?: { signal?: AbortSignal }): Promis
     .slice(0, 6);
 
   const prepared = prepareBaseItems(ranked);
-  const aiMap = await summariseWithAi(prepared, options?.signal);
 
-  const mergedItems = prepared.map((entry) => {
-    const aiItem = aiMap?.get(entry.index);
-    if (!aiItem) {
-      return { ...entry.baseItem, actions: defaultActions(entry.baseItem) };
+  // For better performance, use keyword-based analysis as baseline and skip AI if it takes too long
+  // Check if we should even try AI summarization (default to true)
+  const shouldUseAi = true;
+
+  let mergedItems: InsightItem[] = prepared.map((entry) => ({
+    ...entry.baseItem,
+    actions: defaultActions(entry.baseItem)
+  }));
+
+  if (shouldUseAi && prepared.length > 0) {
+    try {
+      // Add a timeout for AI summarization to prevent long waits
+      const aiMap = await Promise.race([
+        summariseWithAi(prepared, options?.signal),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)) // 15 second timeout
+      ]);
+
+      if (aiMap) {
+        mergedItems = prepared.map((entry) => {
+          const aiItem = aiMap.get(entry.index);
+          if (!aiItem) {
+            return { ...entry.baseItem, actions: defaultActions(entry.baseItem) };
+          }
+          return aiItem;
+        });
+      } else {
+        console.info('[insights] AI summarization timed out, using keyword-based analysis');
+      }
+    } catch (error) {
+      console.warn('[insights] AI summarization failed, using keyword-based analysis', error);
     }
-    return aiItem;
-  });
+  }
 
   const recordPayload = { ...baseRecord, items: mergedItems };
   const id = await repo.saveInsights(recordPayload);

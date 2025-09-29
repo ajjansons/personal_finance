@@ -10,6 +10,7 @@ import {
   PriceAlert,
   InsightRecord,
 } from './repository/types';
+import type { ResearchReport } from '@/features/research/types';
 import { SCHEMA_VERSION } from './constants';
 
 const normalizeFiat = (code: unknown): 'USD' | 'EUR' => (typeof code === 'string' && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
@@ -24,6 +25,7 @@ export class AppDB extends Dexie {
   aiCache!: Table<AiCacheEntry, string>;
   priceAlerts!: Table<PriceAlert, string>;
   insights!: Table<InsightRecord, string>;
+  researchReports!: Table<ResearchReport, string>;
 
   constructor() {
     super('personal-finance-tracker');
@@ -140,6 +142,21 @@ export class AppDB extends Dexie {
           // no-op placeholder to ensure store exists
         }
         await tx.table('insights').count().catch(() => undefined);
+      });
+
+    // v7: introduce researchReports store
+    this.version(7)
+      .stores({
+        holdings: 'id, type, categoryId, name',
+        pricePoints: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        transactions: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        categories: 'id, name, sortOrder',
+        appMeta: 'id',
+        modelPrefs: 'id',
+        aiCache: 'id,&key,createdAt',
+        insights: 'id, runId, createdAt',
+        priceAlerts: 'id, holdingId, createdAt',
+        researchReports: 'id, subjectKey, createdAt, subjectType'
       });
   }
 }

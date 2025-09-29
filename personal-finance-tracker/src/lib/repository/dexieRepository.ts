@@ -14,8 +14,10 @@ import {
   PricePointCreate,
   Transaction,
   PriceAlert,
-  PriceAlertCreate, InsightRecord
+  PriceAlertCreate,
+  InsightRecord
 } from './types';
+import type { ResearchReport } from '@/features/research/types';
 
 const normalizeFiat = (code: string | undefined): 'USD' | 'EUR' => (code && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
 const MODEL_PREFS_ID = 'global';
@@ -326,14 +328,50 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     });
   }
 
+  async saveResearchReport(report: Omit<ResearchReport, 'id'>): Promise<string> {
+    const id = nanoid('res-');
+    await db.researchReports.put({ ...report, id } as ResearchReport);
+    return id;
+  }
+
+  async getResearchReport(id: string): Promise<ResearchReport | null> {
+    const report = await db.researchReports.get(id);
+    return report || null;
+  }
+
+  async getResearchReports(opts?: {
+    subjectKey?: string;
+    subjectType?: 'holding' | 'sector';
+    limit?: number;
+  }): Promise<ResearchReport[]> {
+    let collection = db.researchReports.orderBy('createdAt').reverse();
+
+    if (opts?.subjectKey) {
+      collection = db.researchReports.where('subjectKey').equals(opts.subjectKey).reverse();
+    } else if (opts?.subjectType) {
+      collection = db.researchReports.where('subjectType').equals(opts.subjectType).reverse();
+    }
+
+    if (opts?.limit) {
+      return await collection.limit(opts.limit).toArray();
+    }
+
+    return await collection.toArray();
+  }
+
+  async deleteResearchReport(id: string): Promise<void> {
+    await db.researchReports.delete(id);
+  }
+
   async clearAll(): Promise<void> {
-    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.priceAlerts, db.insights], async () => {
+    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.priceAlerts, db.insights, db.researchReports], async () => {
       await db.holdings.clear();
       await db.categories.clear();
       await db.pricePoints.clear();
       await db.transactions.clear();
       await db.priceAlerts.clear();
       await db.insights.clear();
+      await db.researchReports.clear();
     });
   }
 }

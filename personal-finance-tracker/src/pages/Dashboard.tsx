@@ -1,5 +1,10 @@
 import { useMemo, useState, useCallback } from 'react';
 import Card from '@/components/ui/Card';
+import Dialog from '@/components/ui/Dialog';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import Label from '@/components/ui/Label';
+import Select from '@/components/ui/Select';
 import InsightsCard from '@/components/insights/InsightsCard';
 import { useInsights, useRunInsights } from '@/hooks/useInsights';
 import { getRepository } from '@/lib/repository';
@@ -32,11 +37,82 @@ export default function Dashboard() {
   const repo = useMemo(() => getRepository(), []);
   const [insightActionBusyKey, setInsightActionBusyKey] = useState<string | null>(null);
 
+  // Note dialog state
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [noteHoldingId, setNoteHoldingId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  // Alert dialog state
+  const [alertDialogOpen, setAlertDialogOpen] = useState(false);
+  const [alertHoldingId, setAlertHoldingId] = useState<string | null>(null);
+  const [alertType, setAlertType] = useState<'price_above' | 'price_below'>('price_above');
+  const [alertPrice, setAlertPrice] = useState('');
+  const [alertError, setAlertError] = useState<string | null>(null);
+  const [alertSaving, setAlertSaving] = useState(false);
+
+  // Success message state
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
   const latestInsightRecord = insightRecords[0];
+
+  const handleSaveNote = useCallback(async () => {
+    if (!noteHoldingId) return;
+    const trimmed = noteText.trim();
+    if (!trimmed) {
+      setNoteError('Please enter a note before saving.');
+      return;
+    }
+    setNoteSaving(true);
+    setNoteError(null);
+    try {
+      await appendNote({ holdingId: noteHoldingId, text: trimmed });
+      setNoteDialogOpen(false);
+      setNoteText('');
+      setNoteHoldingId(null);
+      setSuccessMessage('Note added successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error: any) {
+      setNoteError(error?.message ?? 'Failed to add note.');
+    } finally {
+      setNoteSaving(false);
+      setInsightActionBusyKey(null);
+    }
+  }, [appendNote, noteHoldingId, noteText]);
+
+  const handleCreateAlert = useCallback(async () => {
+    if (!alertHoldingId) return;
+    const price = Number(alertPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      setAlertError('Please enter a valid positive price.');
+      return;
+    }
+    setAlertSaving(true);
+    setAlertError(null);
+    try {
+      await repo.createPriceAlert({
+        holdingId: alertHoldingId,
+        rule: { type: alertType, price, currency: displayCurrency }
+      });
+      setAlertDialogOpen(false);
+      setAlertPrice('');
+      setAlertHoldingId(null);
+      setSuccessMessage('Price alert created successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error: any) {
+      setAlertError(error?.message ?? 'Failed to create alert.');
+    } finally {
+      setAlertSaving(false);
+      setInsightActionBusyKey(null);
+    }
+  }, [alertHoldingId, alertPrice, alertType, displayCurrency, repo]);
+
   const handleInsightAction = useCallback(
     async (action: InsightAction, item: InsightItem) => {
       if (!item.holdingId) {
-        window.alert("This insight is not linked to a specific holding yet.");
+        setSuccessMessage("This insight is not linked to a specific holding.");
+        setTimeout(() => setSuccessMessage(null), 3000);
         return;
       }
 
@@ -44,68 +120,42 @@ export default function Dashboard() {
       const itemKey = item.source.url || item.title;
       const actionKey = itemKey + "-" + action.action;
 
-      try {
-        if (action.action === "add_note") {
-          const preset =
-            typeof (action.payload as any)?.text === "string" ? (action.payload as any).text : "";
-          const noteInput = window.prompt(
-            `Add a note for ${holding?.name ?? "this holding"}`,
-            preset
-          );
-          if (!noteInput || !noteInput.trim()) {
-            return;
-          }
-          setInsightActionBusyKey(actionKey);
-          await appendNote({ holdingId: item.holdingId, text: noteInput.trim() });
-          window.alert("Note added to holding.");
-          return;
-        }
-
-        if (action.action === "set_alert") {
-          const priceInput = window.prompt(
-            `Set an alert price for ${holding?.name ?? "this holding"}`,
-            holding && Number.isFinite(holding.pricePerUnit) ? `${holding.pricePerUnit}` : ""
-          );
-          if (!priceInput) {
-            return;
-          }
-          const parsed = Number(priceInput);
-          if (!Number.isFinite(parsed) || parsed <= 0) {
-            window.alert("Enter a valid positive price.");
-            return;
-          }
-          const triggerAbove = window.confirm("Trigger when price goes ABOVE this level? (Cancel for BELOW)");
-          const currencyCandidate = (holding?.currency || displayCurrency).toUpperCase();
-          const currency: "USD" | "EUR" = currencyCandidate === "USD" ? "USD" : "EUR";
-          setInsightActionBusyKey(actionKey);
-          await repo.createPriceAlert({
-            holdingId: item.holdingId,
-            rule: { type: triggerAbove ? "price_above" : "price_below", price: parsed, currency }
-          });
-          window.alert("Price alert saved locally.");
-          return;
-        }
-
-        if (action.action === "rebalance") {
-          window.alert("Open the Holdings page and use \"Suggest rebalance\" for this holding to review the plan.");
-          return;
-        }
-
-        if (action.action === "open_research") {
-          window.alert("Use the Research action on the Holdings page to generate a deep report.");
-          return;
-        }
-
-        window.alert("This action will be available soon.");
-      } catch (error) {
-        console.error("[dashboard] insight action failed", error);
-        const message = error instanceof Error ? error.message : String(error);
-        window.alert(`Action failed: ${message}`);
-      } finally {
-        setInsightActionBusyKey(null);
+      if (action.action === "add_note") {
+        const preset = typeof (action.payload as any)?.text === "string" ? (action.payload as any).text : "";
+        setNoteHoldingId(item.holdingId);
+        setNoteText(preset);
+        setNoteError(null);
+        setNoteDialogOpen(true);
+        setInsightActionBusyKey(actionKey);
+        return;
       }
+
+      if (action.action === "set_alert") {
+        setAlertHoldingId(item.holdingId);
+        setAlertPrice(holding && Number.isFinite(holding.pricePerUnit) ? `${holding.pricePerUnit}` : '');
+        setAlertType('price_below'); // Default to "below" for negative news
+        setAlertError(null);
+        setAlertDialogOpen(true);
+        setInsightActionBusyKey(actionKey);
+        return;
+      }
+
+      if (action.action === "rebalance") {
+        setSuccessMessage("Navigate to Holdings page and use 'Suggest rebalance' to review allocation.");
+        setTimeout(() => setSuccessMessage(null), 5000);
+        return;
+      }
+
+      if (action.action === "open_research") {
+        setSuccessMessage("Navigate to Holdings page to generate detailed research reports.");
+        setTimeout(() => setSuccessMessage(null), 5000);
+        return;
+      }
+
+      setSuccessMessage("This action will be available soon.");
+      setTimeout(() => setSuccessMessage(null), 3000);
     },
-    [appendNote, displayCurrency, holdings, repo]
+    [holdings]
   );
 
   const activeHoldings = useMemo(() => holdings.filter((holding) => !holding.isDeleted), [holdings]);
@@ -181,6 +231,9 @@ export default function Dashboard() {
     [holdings, pricePoints, transactions, displayCurrency, rate, quoteMap]
   );
 
+  const noteHolding = holdings.find((h) => h.id === noteHoldingId);
+  const alertHolding = holdings.find((h) => h.id === alertHoldingId);
+
   return (
     <div className='space-y-8'>
       <div className='text-center space-y-4'>
@@ -194,11 +247,19 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {successMessage && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-300 text-sm animate-fade-in">
+          {successMessage}
+        </div>
+      )}
+
       <InsightsCard
         record={latestInsightRecord}
         isLoading={insightsLoading && !latestInsightRecord}
         isRefreshing={runInsights.isPending}
         onRefresh={() => runInsights.mutate(undefined)}
+        onAction={handleInsightAction}
+        busyActionKey={insightActionBusyKey}
       />
       <div className='grid gap-6 md:grid-cols-2 lg:gap-8'>
         <Card className='relative overflow-hidden'>
@@ -233,6 +294,110 @@ export default function Dashboard() {
           <CategoryBar data={byCategory} />
         </Card>
       </div>
+
+      {/* Add Note Dialog */}
+      <Dialog
+        open={noteDialogOpen}
+        onOpenChange={(next) => {
+          setNoteDialogOpen(next);
+          if (!next) {
+            setNoteText('');
+            setNoteError(null);
+            setNoteHoldingId(null);
+          }
+        }}
+        title={noteHolding ? `Add Note - ${noteHolding.name}` : 'Add Note'}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSaveNote();
+          }}
+        >
+          <div className="space-y-2">
+            <Label htmlFor="insight-note">Note</Label>
+            <textarea
+              id="insight-note"
+              className="w-full min-h-[100px] resize-y rounded border border-slate-700 bg-slate-900/70 p-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none"
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              disabled={noteSaving}
+              placeholder="Add context about this news that you want to remember..."
+              autoFocus
+            />
+            {noteError && <p className="text-sm text-red-400">{noteError}</p>}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setNoteDialogOpen(false)} disabled={noteSaving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={noteSaving}>
+              {noteSaving ? 'Saving...' : 'Save Note'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Set Alert Dialog */}
+      <Dialog
+        open={alertDialogOpen}
+        onOpenChange={(next) => {
+          setAlertDialogOpen(next);
+          if (!next) {
+            setAlertPrice('');
+            setAlertError(null);
+            setAlertHoldingId(null);
+          }
+        }}
+        title={alertHolding ? `Set Price Alert - ${alertHolding.name}` : 'Set Price Alert'}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleCreateAlert();
+          }}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="alert-type">Alert Type</Label>
+              <Select
+                id="alert-type"
+                value={alertType}
+                onChange={(e) => setAlertType(e.target.value as 'price_above' | 'price_below')}
+                disabled={alertSaving}
+              >
+                <option value="price_above">Price goes above</option>
+                <option value="price_below">Price goes below</option>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="alert-price">Trigger Price ({displayCurrency})</Label>
+              <Input
+                id="alert-price"
+                type="number"
+                min="0"
+                step="0.01"
+                value={alertPrice}
+                onChange={(e) => setAlertPrice(e.target.value)}
+                disabled={alertSaving}
+                placeholder="0.00"
+                autoFocus
+              />
+            </div>
+          </div>
+          {alertError && <p className="text-sm text-red-400">{alertError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setAlertDialogOpen(false)} disabled={alertSaving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={alertSaving}>
+              {alertSaving ? 'Creating...' : 'Create Alert'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
     </div>
   );
 }

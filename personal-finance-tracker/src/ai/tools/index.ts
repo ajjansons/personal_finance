@@ -10,6 +10,7 @@ import { useUIStore } from '@/lib/state/uiStore';
 import { chainProvider } from '@/lib/market-data/chainProvider';
 import { convert } from '@/lib/fx/twelveDataFx';
 import type { AiUsage } from '@/ai/types';
+import { generateResearchReport } from '@/features/research/researchEngine';
 
 export type ToolExecutionSuccess<TData = unknown> = {
   success: true;
@@ -771,6 +772,100 @@ const setAlertTool = defineTool({
   }
 });
 
+const openResearchSchema = z.object({
+  subject_id: z.string().min(1).describe('The holding ID or sector name to research'),
+  subject_type: z.enum(['holding', 'sector']).default('holding').describe('Type of subject to research')
+});
+
+const openResearchTool = defineTool({
+  name: 'open_research',
+  description: 'Generate a comprehensive AI-powered investment research report for a holding or sector. The report includes financial analysis, market position, risks, opportunities, and sources.',
+  parameters: {
+    type: 'object',
+    properties: {
+      subject_id: {
+        type: 'string',
+        description: 'The holding ID (from get_holdings) or sector name to research'
+      },
+      subject_type: {
+        type: 'string',
+        enum: ['holding', 'sector'],
+        description: 'Type of subject: holding (for individual stocks/assets) or sector (for industry analysis)',
+        default: 'holding'
+      }
+    },
+    required: ['subject_id']
+  },
+  schema: openResearchSchema,
+  async execute(input) {
+    const repo = getRepository();
+    const provenance = ['local-db', 'edgar-api', 'research-engine'];
+
+    try {
+      if (input.subject_type === 'holding') {
+        // Get holding details
+        const holdings = await repo.getHoldings({ includeDeleted: false });
+        const holding = holdings.find((h) => h.id === input.subject_id);
+
+        if (!holding) {
+          return {
+            success: false,
+            error: `Holding not found: ${input.subject_id}`,
+            data_provenance: provenance
+          };
+        }
+
+        // Generate research report
+        const report = await generateResearchReport({
+          subjectType: 'holding',
+          subjectId: holding.id,
+          holdingSymbol: holding.symbol,
+          holdingName: holding.name,
+          holdingType: holding.type
+        });
+
+        if (!report) {
+          return {
+            success: false,
+            error: 'Failed to generate research report. The AI service may be unavailable or the holding may not have sufficient public information.',
+            data_provenance: provenance
+          };
+        }
+
+        // Return preview with report ID
+        const preview = report.sections[0]?.bodyMd?.substring(0, 200) || 'No preview available';
+
+        return {
+          success: true,
+          data: {
+            reportId: report.id,
+            holdingName: holding.name,
+            symbol: holding.symbol,
+            sectionsCount: report.sections.length,
+            sourcesCount: report.sources.length,
+            preview: preview + '...',
+            message: `Research report generated successfully for ${holding.name}. The report includes ${report.sections.length} sections and cites ${report.sources.length} sources. View the full report in the Holdings page or navigate to /research/${report.id}`
+          },
+          data_provenance: provenance
+        };
+      }
+
+      // Sector research not yet implemented
+      return {
+        success: false,
+        error: 'Sector research is not yet implemented. Please use subject_type="holding" to research individual holdings.',
+        data_provenance: provenance
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message ?? 'Research report generation failed',
+        data_provenance: provenance
+      };
+    }
+  }
+});
+
 const TOOL_DEFINITIONS = [
   portfolioSnapshotTool,
   holdingsTool,
@@ -779,7 +874,8 @@ const TOOL_DEFINITIONS = [
   whatIfTool,
   suggestRebalanceTool,
   addNoteTool,
-  setAlertTool
+  setAlertTool,
+  openResearchTool
 ] as const;
 const TOOL_MAP = new Map(TOOL_DEFINITIONS.map((tool) => [tool.name, tool]));
 

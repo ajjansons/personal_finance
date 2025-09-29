@@ -7,6 +7,44 @@ function formatDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Extract basic sentiment from text using keyword analysis
+ * Returns a score from -1 (very negative) to +1 (very positive)
+ */
+function extractBasicSentiment(headline: string, summary: string): number | undefined {
+  const text = `${headline} ${summary}`.toLowerCase();
+
+  const positiveKeywords = [
+    'surge', 'soar', 'gain', 'profit', 'beat', 'exceed', 'strong', 'growth',
+    'launch', 'partner', 'acquire', 'expand', 'approve', 'upgrade', 'breakthrough'
+  ];
+
+  const negativeKeywords = [
+    'drop', 'fall', 'plunge', 'loss', 'miss', 'weak', 'decline', 'lawsuit',
+    'investigation', 'layoff', 'downgrade', 'warning', 'concern', 'delay', 'fraud'
+  ];
+
+  let positiveCount = 0;
+  let negativeCount = 0;
+
+  positiveKeywords.forEach(keyword => {
+    if (text.includes(keyword)) positiveCount++;
+  });
+
+  negativeKeywords.forEach(keyword => {
+    if (text.includes(keyword)) negativeCount++;
+  });
+
+  const total = positiveCount + negativeCount;
+  if (total === 0) return undefined;
+
+  // Calculate a rough sentiment score
+  const score = (positiveCount - negativeCount) / Math.max(total, 1);
+
+  // Scale to be more moderate (-0.8 to +0.8 range)
+  return score * 0.8;
+}
+
 export async function fetchFinnhubNews(
   contexts: HoldingNewsContext[],
   options: ProviderFetchOptions
@@ -67,6 +105,9 @@ export async function fetchFinnhubNews(
 
         const related = symbolMap.get(symbol) ?? [];
 
+        // Extract basic sentiment from headline and summary
+        const sentimentScore = extractBasicSentiment(headline, summary);
+
         const normalized: NormalizedProviderInsight = {
           id: urlStr,
           provider: "finnhub",
@@ -75,7 +116,7 @@ export async function fetchFinnhubNews(
           url: urlStr,
           publishedAt: published.toISOString(),
           type: "news",
-          sentimentScore: undefined,
+          sentimentScore,
           relatedHoldings: related,
           raw: item
         };

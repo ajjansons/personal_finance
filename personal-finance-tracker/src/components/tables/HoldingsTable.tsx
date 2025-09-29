@@ -20,6 +20,7 @@ type Props = {
   onExplain?: (h: HoldingRow) => void;
   onWhatIf?: (h: HoldingRow) => void;
   onSuggestRebalance?: (h: HoldingRow) => void;
+  onResearch?: (h: HoldingRow) => void;
   onEdit?: (h: HoldingRow) => void;
   onDelete?: (id: string) => void;
   onAdd?: (h: HoldingRow) => void;
@@ -33,6 +34,7 @@ export default function HoldingsTable({
   onExplain,
   onWhatIf,
   onSuggestRebalance,
+  onResearch,
   onEdit,
   onDelete,
   onAdd
@@ -111,6 +113,7 @@ export default function HoldingsTable({
                   <Button variant="ghost" onClick={() => onExplain?.(row)}>Explain</Button>
                   <Button variant="ghost" onClick={() => onWhatIf?.(row)}>What-if</Button>
                   <Button variant="ghost" onClick={() => onSuggestRebalance?.(row)}>Suggest rebalance</Button>
+                  <Button variant="ghost" onClick={() => onResearch?.(row)}>Research</Button>
                   <Button variant="ghost" onClick={() => onEdit?.(row)}>Edit</Button>
                   <Button variant="ghost" onClick={() => onAdd?.(row)}>Add/Remove</Button>
                   <Button variant="destructive" onClick={() => onDelete?.(row.id)}>Delete</Button>
