@@ -12,6 +12,7 @@ import Input from '@/components/ui/Input';
 import Label from '@/components/ui/Label';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { useQuotes } from '@/hooks/useQuotes';
+import { useInsightsByHolding } from '@/hooks/useInsights';
 import { convert, useUsdEurRate } from '@/lib/fx/twelveDataFx';
 import { computeHoldingValuation, normalizeCurrency } from '@/lib/calculations';
 import { useUIStore } from '@/lib/state/uiStore';
@@ -62,6 +63,14 @@ export default function Holdings() {
   const { addTransaction } = useTransactions();
   const { data: categories = [] } = useCategories();
   const { quotes, refresh: refreshQuotes } = useQuotes(data);
+  const insightsByHoldingMap = useInsightsByHolding();
+  const insightsByHolding = useMemo(() => {
+    const map: Record<string, number> = {};
+    insightsByHoldingMap.forEach((items, holdingId) => {
+      map[holdingId] = items.length;
+    });
+    return map;
+  }, [insightsByHoldingMap]);
   const { rate } = useUsdEurRate();
   const displayCurrency = useUIStore((s) => s.displayCurrency);
   const qc = useQueryClient();
@@ -400,6 +409,7 @@ export default function Holdings() {
         <HoldingsTable
           data={rows}
           displayCurrency={displayCurrency}
+          insightsByHolding={insightsByHolding}
           totalCurrentValue={totalCurrentValue}
           onExplain={handleExplain}
           onWhatIf={handleWhatIf}

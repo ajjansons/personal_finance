@@ -11,7 +11,8 @@ import {
   PricePoint,
   PricePointCreate,
   PriceAlert,
-  PriceAlertCreate
+  PriceAlertCreate,
+  InsightRecord
 } from './types';
 
 export class CloudPortfolioRepository implements PortfolioRepository {
@@ -47,14 +48,19 @@ export class CloudPortfolioRepository implements PortfolioRepository {
   createPriceAlert(_payload: PriceAlertCreate): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
   getPriceAlerts(_holdingId?: string): Promise<PriceAlert[]> { this.notImplemented(); return Promise.resolve([]); }
   deletePriceAlert(_id: string): Promise<void> { this.notImplemented(); return Promise.resolve(); }
+  saveInsights(_record: Omit<InsightRecord, 'id'>): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
+  getInsights(_opts?: { limit?: number }): Promise<InsightRecord[]> { this.notImplemented(); return Promise.resolve([]); }
+
 
 
   exportAll(): Promise<ExportBundle> {
-    this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [], modelPrefs: null, aiCache: [], priceAlerts: [] });
+    this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [], modelPrefs: null, aiCache: [], priceAlerts: [], insights: [] });
   }
   importAll(_payload: ImportBundle): Promise<void> {
     this.notImplemented(); return Promise.resolve();
   }
   clearAll(): Promise<void> { this.notImplemented(); return Promise.resolve(); }
 }
+
+
 

@@ -37,6 +37,12 @@ type UIState = {
   monthlyUsageUSD: number;
   incrementAiUsageUSD: (delta: number) => void;
   resetAiUsageUSD: () => void;
+  insightsAlphaVantageEnabled: boolean;
+  setInsightsAlphaVantageEnabled: (enabled: boolean) => void;
+  insightsFinnhubEnabled: boolean;
+  setInsightsFinnhubEnabled: (enabled: boolean) => void;
+  insightsLookbackHours: number;
+  setInsightsLookbackHours: (hours: number) => void;
 };
 
 const AI_DEFAULTS: Record<AiProvider, ModelByFeature> = {
@@ -108,5 +114,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   monthlyUsageUSD: 0,
   incrementAiUsageUSD: (delta) =>
     set((state) => ({ monthlyUsageUSD: Math.max(0, state.monthlyUsageUSD + (delta || 0)) })),
-  resetAiUsageUSD: () => set({ monthlyUsageUSD: 0 })
+  resetAiUsageUSD: () => set({ monthlyUsageUSD: 0 }),
+  insightsAlphaVantageEnabled: true,
+  setInsightsAlphaVantageEnabled: (enabled) => set({ insightsAlphaVantageEnabled: enabled }),
+  insightsFinnhubEnabled: true,
+  setInsightsFinnhubEnabled: (enabled) => set({ insightsFinnhubEnabled: enabled }),
+  insightsLookbackHours: 48,
+  setInsightsLookbackHours: (hours) => set({ insightsLookbackHours: hours > 0 ? hours : 24 })
 }));
+

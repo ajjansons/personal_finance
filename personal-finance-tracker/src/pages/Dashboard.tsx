@@ -1,5 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import Card from '@/components/ui/Card';
+import InsightsCard from '@/components/insights/InsightsCard';
+import { useInsights, useRunInsights } from '@/hooks/useInsights';
+import { getRepository } from '@/lib/repository';
+import type { InsightAction, InsightItem } from '@/lib/repository/types';
+
 import AllocationPie from '@/components/charts/AllocationPie';
 import TotalValueLine from '@/components/charts/TotalValueLine';
 import CategoryBar from '@/components/charts/CategoryBar';
@@ -15,13 +20,93 @@ import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { useQuotes } from '@/hooks/useQuotes';
 
 export default function Dashboard() {
-  const { data: holdings = [] } = useHoldings();
+  const { data: holdings = [], appendNote } = useHoldings();
   const { data: categories = [] } = useCategories();
   const { data: pricePoints = [] } = usePriceHistory();
   const { data: transactions = [] } = useTransactions();
   const displayCurrency = useUIStore((s) => s.displayCurrency);
   const { rate } = useUsdEurRate();
   const { quotes } = useQuotes(holdings);
+  const { data: insightRecords = [], isLoading: insightsLoading } = useInsights({ limit: 1 });
+  const runInsights = useRunInsights();
+  const repo = useMemo(() => getRepository(), []);
+  const [insightActionBusyKey, setInsightActionBusyKey] = useState<string | null>(null);
+
+  const latestInsightRecord = insightRecords[0];
+  const handleInsightAction = useCallback(
+    async (action: InsightAction, item: InsightItem) => {
+      if (!item.holdingId) {
+        window.alert("This insight is not linked to a specific holding yet.");
+        return;
+      }
+
+      const holding = holdings.find((h) => h.id === item.holdingId);
+      const itemKey = item.source.url || item.title;
+      const actionKey = itemKey + "-" + action.action;
+
+      try {
+        if (action.action === "add_note") {
+          const preset =
+            typeof (action.payload as any)?.text === "string" ? (action.payload as any).text : "";
+          const noteInput = window.prompt(
+            `Add a note for ${holding?.name ?? "this holding"}`,
+            preset
+          );
+          if (!noteInput || !noteInput.trim()) {
+            return;
+          }
+          setInsightActionBusyKey(actionKey);
+          await appendNote({ holdingId: item.holdingId, text: noteInput.trim() });
+          window.alert("Note added to holding.");
+          return;
+        }
+
+        if (action.action === "set_alert") {
+          const priceInput = window.prompt(
+            `Set an alert price for ${holding?.name ?? "this holding"}`,
+            holding && Number.isFinite(holding.pricePerUnit) ? `${holding.pricePerUnit}` : ""
+          );
+          if (!priceInput) {
+            return;
+          }
+          const parsed = Number(priceInput);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            window.alert("Enter a valid positive price.");
+            return;
+          }
+          const triggerAbove = window.confirm("Trigger when price goes ABOVE this level? (Cancel for BELOW)");
+          const currencyCandidate = (holding?.currency || displayCurrency).toUpperCase();
+          const currency: "USD" | "EUR" = currencyCandidate === "USD" ? "USD" : "EUR";
+          setInsightActionBusyKey(actionKey);
+          await repo.createPriceAlert({
+            holdingId: item.holdingId,
+            rule: { type: triggerAbove ? "price_above" : "price_below", price: parsed, currency }
+          });
+          window.alert("Price alert saved locally.");
+          return;
+        }
+
+        if (action.action === "rebalance") {
+          window.alert("Open the Holdings page and use \"Suggest rebalance\" for this holding to review the plan.");
+          return;
+        }
+
+        if (action.action === "open_research") {
+          window.alert("Use the Research action on the Holdings page to generate a deep report.");
+          return;
+        }
+
+        window.alert("This action will be available soon.");
+      } catch (error) {
+        console.error("[dashboard] insight action failed", error);
+        const message = error instanceof Error ? error.message : String(error);
+        window.alert(`Action failed: ${message}`);
+      } finally {
+        setInsightActionBusyKey(null);
+      }
+    },
+    [appendNote, displayCurrency, holdings, repo]
+  );
 
   const activeHoldings = useMemo(() => holdings.filter((holding) => !holding.isDeleted), [holdings]);
 
@@ -109,6 +194,12 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <InsightsCard
+        record={latestInsightRecord}
+        isLoading={insightsLoading && !latestInsightRecord}
+        isRefreshing={runInsights.isPending}
+        onRefresh={() => runInsights.mutate(undefined)}
+      />
       <div className='grid gap-6 md:grid-cols-2 lg:gap-8'>
         <Card className='relative overflow-hidden'>
           <div className='flex items-center justify-between mb-6'>
@@ -145,3 +236,12 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+

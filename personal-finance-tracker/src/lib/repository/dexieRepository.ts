@@ -14,7 +14,7 @@ import {
   PricePointCreate,
   Transaction,
   PriceAlert,
-  PriceAlertCreate
+  PriceAlertCreate, InsightRecord
 } from './types';
 
 const normalizeFiat = (code: string | undefined): 'USD' | 'EUR' => (code && code.toUpperCase() === 'USD') ? 'USD' : 'EUR';
@@ -195,6 +195,22 @@ export class DexiePortfolioRepository implements PortfolioRepository {
   async deletePriceAlert(id: string): Promise<void> {
     await db.priceAlerts.delete(id);
   }
+  async saveInsights(record: Omit<InsightRecord, 'id'>): Promise<string> {
+    const id = nanoid('ins-');
+    const created: InsightRecord = { ...record, id };
+    await db.insights.put(created);
+    return id;
+  }
+
+  async getInsights(opts?: { limit?: number }): Promise<InsightRecord[]> {
+    const limit = opts?.limit ?? 5;
+    const collection = db.insights.orderBy('createdAt').reverse();
+    if (limit > 0) {
+      return collection.limit(limit).toArray();
+    }
+    return collection.toArray();
+  }
+
 
   async aiCacheGet(key: string): Promise<AiCacheEntry | undefined> {
     const entry = await db.aiCache.where('key').equals(key).first();
@@ -232,12 +248,13 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     return expiredKeys.length;
   }
   async exportAll(): Promise<ExportBundle> {
-    const [holdings, categories, pricePoints, modelPrefs, aiCache, priceAlerts] = await Promise.all([
+    const [holdings, categories, pricePoints, modelPrefs, aiCache, insights, priceAlerts] = await Promise.all([
       db.holdings.toArray(),
       db.categories.toArray(),
       db.pricePoints.toArray(),
       db.modelPrefs.get(MODEL_PREFS_ID),
       db.aiCache.toArray(),
+      db.insights.toArray(),
       db.priceAlerts.toArray()
     ]);
     const payload: ExportBundle = {
@@ -246,18 +263,20 @@ export class DexiePortfolioRepository implements PortfolioRepository {
       pricePoints,
       modelPrefs: modelPrefs ?? null,
       aiCache,
+      insights,
       priceAlerts
     };
     return payload;
   }
 
   async importAll(payload: ImportBundle): Promise<void> {
-    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.modelPrefs, db.aiCache, db.priceAlerts], async () => {
+    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.modelPrefs, db.aiCache, db.priceAlerts, db.insights], async () => {
       await db.holdings.clear();
       await db.categories.clear();
       await db.pricePoints.clear();
       await db.transactions.clear();
       await db.priceAlerts.clear();
+      await db.insights.clear();
       const today = new Date().toISOString().slice(0, 10);
       const holdingsWithDate = payload.holdings.map((h) => ({
         ...h,
@@ -298,6 +317,9 @@ export class DexiePortfolioRepository implements PortfolioRepository {
         }
       }
 
+      if (payload.insights && payload.insights.length) {
+        await db.insights.bulkPut(payload.insights as InsightRecord[]);
+      }
       if (payload.priceAlerts && payload.priceAlerts.length) {
         await db.priceAlerts.bulkPut(payload.priceAlerts as PriceAlert[]);
       }
@@ -305,15 +327,17 @@ export class DexiePortfolioRepository implements PortfolioRepository {
   }
 
   async clearAll(): Promise<void> {
-    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.priceAlerts], async () => {
+    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.priceAlerts, db.insights], async () => {
       await db.holdings.clear();
       await db.categories.clear();
       await db.pricePoints.clear();
       await db.transactions.clear();
       await db.priceAlerts.clear();
+      await db.insights.clear();
     });
   }
 }
+
 
 
 

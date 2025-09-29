@@ -67,6 +67,12 @@ export default function AiSettings() {
   const aiCallLog = useUIStore((s) => s.aiCallLog);
   const clearAiLog = useUIStore((s) => s.clearAiLog);
   const monthlyUsageUSD = useUIStore((s) => s.monthlyUsageUSD);
+  const insightsAlphaVantageEnabled = useUIStore((s) => s.insightsAlphaVantageEnabled);
+  const setInsightsAlphaVantageEnabled = useUIStore((s) => s.setInsightsAlphaVantageEnabled);
+  const insightsFinnhubEnabled = useUIStore((s) => s.insightsFinnhubEnabled);
+  const setInsightsFinnhubEnabled = useUIStore((s) => s.setInsightsFinnhubEnabled);
+  const insightsLookbackHours = useUIStore((s) => s.insightsLookbackHours);
+  const setInsightsLookbackHours = useUIStore((s) => s.setInsightsLookbackHours);
 
   const providerKeyName = aiProvider ? ENV_KEY_BY_PROVIDER[aiProvider] : null;
   const providerKeyValue = providerKeyName ? (import.meta.env as Record<string, string | undefined>)[providerKeyName] : undefined;
@@ -81,6 +87,11 @@ export default function AiSettings() {
   const handleBudgetChange = (value: string) => {
     const parsed = Number(value);
     setBudgetUSD(Number.isFinite(parsed) && parsed >= 0 ? parsed : 0);
+  };
+  const handleLookbackChange = (value: string) => {
+    const parsed = Number(value);
+    const sanitized = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : insightsLookbackHours;
+    setInsightsLookbackHours(Math.max(6, sanitized));
   };
 
   return (
@@ -196,6 +207,48 @@ export default function AiSettings() {
           onChange={setLoggingEnabled}
           description="Store recent AI prompts locally for troubleshooting."
         />
+      </div>
+
+
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-200">News providers</h3>
+          <p className="text-xs text-slate-500">Choose which data sources feed the Insights pipeline.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <ToggleRow
+            id="insights-alpha"
+            label="Alpha Vantage"
+            checked={insightsAlphaVantageEnabled}
+            onChange={setInsightsAlphaVantageEnabled}
+            description="Requires VITE_ALPHAVANTAGE_KEY. Provides equity and macro headlines."
+          />
+          <ToggleRow
+            id="insights-finnhub"
+            label="Finnhub"
+            checked={insightsFinnhubEnabled}
+            onChange={setInsightsFinnhubEnabled}
+            description="Requires VITE_FINNHUB_KEY. Provides company-specific news."
+          />
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="insights-lookback">Lookback window (hours)</Label>
+            <Input
+              id="insights-lookback"
+              type="number"
+              min="6"
+              step="6"
+              value={insightsLookbackHours}
+              onChange={(event) => handleLookbackChange(event.target.value)}
+            />
+            <p className="text-xs text-slate-500">Default 48 hours. Increase for quieter portfolios.</p>
+          </div>
+          <div className="space-y-1 text-xs text-slate-500 md:mt-6">
+            <p>API keys:</p>
+            <p><span className="font-mono">VITE_ALPHAVANTAGE_KEY</span>, <span className="font-mono">VITE_FINNHUB_KEY</span></p>
+          </div>
+        </div>
       </div>
 
       <div className="space-y-3">

@@ -88,6 +88,31 @@ export type PriceAlert = {
   lastNotifiedAt?: string;
 };
 
+export type InsightAction = {
+  label: string;
+  action: 'rebalance' | 'set_alert' | 'add_note' | 'open_research';
+  payload?: unknown;
+};
+
+export type InsightItem = {
+  holdingId?: string;
+  type: 'news' | 'event' | 'filing' | 'macro';
+  title: string;
+  summary: string;
+  source: { name: string; url: string };
+  impact: 'positive' | 'negative' | 'neutral' | 'unclear';
+  confidence: number;
+  actions?: InsightAction[];
+};
+
+export type InsightRecord = {
+  id: string;
+  runId: string;
+  createdAt: string;
+  displayCurrency: FiatCurrency;
+  items: InsightItem[];
+};
+
 export type HoldingCreate = Omit<Holding, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted'>;
 export type CategoryCreate = Omit<Category, 'id'>;
 export type PricePointCreate = Omit<PricePoint, 'id'>;
@@ -101,6 +126,7 @@ export type ExportBundle = {
   pricePoints: PricePoint[];
   modelPrefs?: ModelPrefs | null;
   aiCache?: AiCacheEntry[];
+  insights?: InsightRecord[];
   priceAlerts?: PriceAlert[];
 };
 
@@ -138,6 +164,8 @@ export interface PortfolioRepository {
   createPriceAlert(payload: PriceAlertCreate): Promise<string>;
   getPriceAlerts(holdingId?: string): Promise<PriceAlert[]>;
   deletePriceAlert(id: string): Promise<void>;
+  saveInsights(record: Omit<InsightRecord, 'id'>): Promise<string>;
+  getInsights(opts?: { limit?: number }): Promise<InsightRecord[]>;
 
   exportAll(): Promise<ExportBundle>;
   importAll(payload: ImportBundle): Promise<void>;

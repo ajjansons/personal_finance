@@ -16,6 +16,7 @@ type Props = {
   data: HoldingRow[];
   displayCurrency: 'USD' | 'EUR';
   totalCurrentValue: number;
+  insightsByHolding?: Record<string, number>;
   onExplain?: (h: HoldingRow) => void;
   onWhatIf?: (h: HoldingRow) => void;
   onSuggestRebalance?: (h: HoldingRow) => void;
@@ -28,6 +29,7 @@ export default function HoldingsTable({
   data,
   displayCurrency,
   totalCurrentValue,
+  insightsByHolding,
   onExplain,
   onWhatIf,
   onSuggestRebalance,
@@ -54,7 +56,16 @@ export default function HoldingsTable({
         <TBody>
           {data.map((row) => (
             <TR key={row.id}>
-              <TD>{row.name}</TD>
+              <TD>
+                <div className="flex items-center gap-2">
+                  <span>{row.name}</span>
+                  {insightsByHolding && insightsByHolding[row.id] ? (
+                    <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-200">
+                      News{insightsByHolding[row.id] > 1 ? ` (${insightsByHolding[row.id]})` : ""}
+                    </span>
+                  ) : null}
+                </div>
+              </TD>
               <TD>{row.type}</TD>
               <TD>{row.type === 'cash' || row.type === 'real_estate' ? '-' : row.units}</TD>
               <TD>

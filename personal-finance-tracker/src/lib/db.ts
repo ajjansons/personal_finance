@@ -7,7 +7,8 @@ import {
   Transaction,
   ModelPrefs,
   AiCacheEntry,
-  PriceAlert
+  PriceAlert,
+  InsightRecord,
 } from './repository/types';
 import { SCHEMA_VERSION } from './constants';
 
@@ -22,6 +23,7 @@ export class AppDB extends Dexie {
   modelPrefs!: Table<ModelPrefs, string>;
   aiCache!: Table<AiCacheEntry, string>;
   priceAlerts!: Table<PriceAlert, string>;
+  insights!: Table<InsightRecord, string>;
 
   constructor() {
     super('personal-finance-tracker');
@@ -125,6 +127,7 @@ export class AppDB extends Dexie {
         appMeta: 'id',
         modelPrefs: 'id',
         aiCache: 'id,&key,createdAt',
+        insights: 'id, runId, createdAt',
         priceAlerts: 'id, holdingId, createdAt'
       })
       .upgrade(async (tx) => {
@@ -136,6 +139,7 @@ export class AppDB extends Dexie {
         if (!(await tx.table('priceAlerts').count())) {
           // no-op placeholder to ensure store exists
         }
+        await tx.table('insights').count().catch(() => undefined);
       });
   }
 }
@@ -164,3 +168,5 @@ async function ensureModelPrefs() {
   }
 }
 ensureModelPrefs();
+
+
