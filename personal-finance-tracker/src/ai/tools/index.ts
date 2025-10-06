@@ -821,7 +821,8 @@ const openResearchTool = defineTool({
           subjectId: holding.id,
           holdingSymbol: holding.symbol,
           holdingName: holding.name,
-          holdingType: holding.type
+          holdingType: holding.type,
+          holdingCategoryId: holding.categoryId
         });
 
         if (!report) {
@@ -866,6 +867,127 @@ const openResearchTool = defineTool({
   }
 });
 
+const searchResearchSchema = z.object({
+  query: z.string().min(1).describe('Search query to find relevant information in research reports'),
+  holding_id: z.string().optional().describe('Optional: Limit search to reports for a specific holding ID'),
+  limit: z.number().int().positive().max(20).default(5).describe('Maximum number of relevant sections to return')
+});
+
+const searchResearchTool = defineTool({
+  name: 'search_research',
+  description: 'Search through all saved research reports to find relevant information. Returns matching sections with references to the source reports. Use this to answer questions about holdings that have been researched.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Search query - what information are you looking for? (e.g., "revenue growth", "competitive advantages", "risk factors")'
+      },
+      holding_id: {
+        type: 'string',
+        description: 'Optional: Limit search to reports about a specific holding'
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum number of relevant sections to return (default: 5, max: 20)',
+        default: 5
+      }
+    },
+    required: ['query']
+  },
+  schema: searchResearchSchema,
+  async execute(input) {
+    const repo = getRepository();
+    const provenance = ['local-db:researchReports'];
+
+    try {
+      // Get all research reports (or filtered by holding_id)
+      const reports = await repo.getResearchReports({
+        subjectKey: input.holding_id,
+        limit: 100 // Get enough reports to search through
+      });
+
+      if (reports.length === 0) {
+        return {
+          success: true,
+          data: {
+            message: input.holding_id
+              ? `No research reports found for holding ${input.holding_id}`
+              : 'No research reports have been generated yet. Use open_research to generate a report first.',
+            results: []
+          },
+          data_provenance: provenance
+        };
+      }
+
+      // Simple keyword search through sections
+      const queryLower = input.query.toLowerCase();
+      const keywords = queryLower.split(/\s+/).filter(k => k.length > 2);
+
+      type SearchResult = {
+        reportId: string;
+        holdingName: string;
+        sectionTitle: string;
+        sectionContent: string;
+        relevanceScore: number;
+        sourceCount: number;
+      };
+
+      const results: SearchResult[] = [];
+
+      for (const report of reports) {
+        for (const section of report.sections) {
+          const sectionTextLower = (section.title + ' ' + section.bodyMd).toLowerCase();
+
+          // Calculate relevance score based on keyword matches
+          let score = 0;
+          for (const keyword of keywords) {
+            const matches = (sectionTextLower.match(new RegExp(keyword, 'g')) || []).length;
+            score += matches;
+          }
+
+          if (score > 0) {
+            results.push({
+              reportId: report.id,
+              holdingName: report.subjectName,
+              sectionTitle: section.title,
+              sectionContent: section.bodyMd.substring(0, 500) + (section.bodyMd.length > 500 ? '...' : ''),
+              relevanceScore: score,
+              sourceCount: report.sources.length
+            });
+          }
+        }
+      }
+
+      // Sort by relevance and limit
+      results.sort((a, b) => b.relevanceScore - a.relevanceScore);
+      const topResults = results.slice(0, input.limit);
+
+      return {
+        success: true,
+        data: {
+          message: `Found ${topResults.length} relevant sections across ${reports.length} research reports`,
+          query: input.query,
+          results: topResults.map(r => ({
+            holding: r.holdingName,
+            section: r.sectionTitle,
+            content: r.sectionContent,
+            reportLink: `/research/${r.reportId}`,
+            relevance: r.relevanceScore
+          }))
+        },
+        data_provenance: provenance
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error?.message ?? 'Failed to search research reports',
+        data_provenance: provenance
+      };
+    }
+  }
+});
+
 const TOOL_DEFINITIONS = [
   portfolioSnapshotTool,
   holdingsTool,
@@ -875,7 +997,8 @@ const TOOL_DEFINITIONS = [
   suggestRebalanceTool,
   addNoteTool,
   setAlertTool,
-  openResearchTool
+  openResearchTool,
+  searchResearchTool
 ] as const;
 const TOOL_MAP = new Map(TOOL_DEFINITIONS.map((tool) => [tool.name, tool]));
 
@@ -926,3 +1049,4 @@ export async function executeToolByName(name: string, rawArgs: unknown): Promise
     };
   }
 }
+
