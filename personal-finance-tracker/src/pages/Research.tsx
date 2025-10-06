@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Select from '@/components/ui/Select';
+import Dialog from '@/components/ui/Dialog';
 import { useResearchReports, useDeleteResearchReport } from '@/hooks/useResearchReports';
 import { useHoldings } from '@/hooks/useHoldings';
 import { useCategories } from '@/hooks/useCategories';
@@ -33,6 +34,9 @@ export default function ResearchIndex() {
   const { data: holdings = [] } = useHoldings();
   const { data: categories = [] } = useCategories();
   const deleteMutation = useDeleteResearchReport();
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [reportToDelete, setReportToDelete] = useState<{ id: string; name: string } | null>(null);
 
   const holdingsById = useMemo(() => new Map(holdings.map((holding) => [holding.id, holding])), [holdings]);
   const categoriesById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
@@ -73,11 +77,17 @@ export default function ResearchIndex() {
     return copy;
   }, [decoratedReports, sortKey]);
 
-  const handleDelete = async (reportId: string, subjectName: string) => {
-    const confirmed = window.confirm(`Delete the research report for ${subjectName}?`);
-    if (!confirmed) return;
+  const handleDeleteClick = (reportId: string, subjectName: string) => {
+    setReportToDelete({ id: reportId, name: subjectName });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!reportToDelete) return;
     try {
-      await deleteMutation.mutateAsync(reportId);
+      await deleteMutation.mutateAsync(reportToDelete.id);
+      setDeleteDialogOpen(false);
+      setReportToDelete(null);
     } catch (error) {
       console.error('[research] failed to delete report', error);
     }
@@ -131,7 +141,7 @@ export default function ResearchIndex() {
               <Card key={report.id} className="space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <Link to={/research/} className="text-xl font-semibold text-blue-300 hover:text-blue-200">
+                    <Link to={`/research/${report.id}`} className="text-xl font-semibold text-blue-300 hover:text-blue-200">
                       {report.subjectName}
                     </Link>
                     <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
@@ -145,13 +155,13 @@ export default function ResearchIndex() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" onClick={() => navigate(/research/)}>
+                    <Button size="sm" onClick={() => navigate(`/research/${report.id}`)}>
                       View
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleDelete(report.id, report.subjectName)}
+                      onClick={() => handleDeleteClick(report.id, report.subjectName)}
                       disabled={deleteMutation.isPending}
                     >
                       Delete
@@ -177,6 +187,24 @@ export default function ResearchIndex() {
           })}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} title="Delete Research Report">
+        <div className="space-y-4">
+          <p className="text-slate-300">
+            Are you sure you want to delete the research report for <span className="font-semibold text-slate-100">{reportToDelete?.name}</span>?
+          </p>
+          <p className="text-sm text-slate-400">This action cannot be undone.</p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)} disabled={deleteMutation.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handleDeleteConfirm} disabled={deleteMutation.isPending}>
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }
