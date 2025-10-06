@@ -200,6 +200,18 @@ export interface PortfolioRepository {
   }): Promise<ResearchReport[]>;
   deleteResearchReport(id: string): Promise<void>;
 
+  // Chat Threads
+  createThread(thread: Omit<AiThread, 'id' | 'createdAt' | 'updatedAt'>): Promise<string>;
+  getThread(id: string): Promise<AiThread | null>;
+  getThreads(opts?: { pageRoute?: string; limit?: number }): Promise<AiThread[]>;
+  updateThread(id: string, updates: Partial<Omit<AiThread, 'id' | 'createdAt'>>): Promise<void>;
+  deleteThread(id: string): Promise<void>;
+
+  // Chat Messages
+  addMessage(message: Omit<AiMessage, 'id' | 'createdAt'>): Promise<string>;
+  getMessages(threadId: string): Promise<AiMessage[]>;
+  deleteMessages(threadId: string): Promise<void>;
+
   exportAll(): Promise<ExportBundle>;
   importAll(payload: ImportBundle): Promise<void>;
   clearAll(): Promise<void>;

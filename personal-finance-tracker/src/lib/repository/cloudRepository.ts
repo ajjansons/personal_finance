@@ -12,7 +12,9 @@ import {
   PricePointCreate,
   PriceAlert,
   PriceAlertCreate,
-  InsightRecord
+  InsightRecord,
+  AiThread,
+  AiMessage
 } from './types';
 import type { ResearchReport } from '@/features/research/types';
 
@@ -56,6 +58,18 @@ export class CloudPortfolioRepository implements PortfolioRepository {
   getResearchReport(_id: string): Promise<ResearchReport | null> { this.notImplemented(); return Promise.resolve(null); }
   getResearchReports(_opts?: { subjectKey?: string; subjectType?: 'holding' | 'sector'; limit?: number }): Promise<ResearchReport[]> { this.notImplemented(); return Promise.resolve([]); }
   deleteResearchReport(_id: string): Promise<void> { this.notImplemented(); return Promise.resolve(); }
+
+  // Chat Threads
+  createThread(_thread: Omit<AiThread, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
+  getThread(_id: string): Promise<AiThread | null> { this.notImplemented(); return Promise.resolve(null); }
+  getThreads(_opts?: { pageRoute?: string; limit?: number }): Promise<AiThread[]> { this.notImplemented(); return Promise.resolve([]); }
+  updateThread(_id: string, _updates: Partial<Omit<AiThread, 'id' | 'createdAt'>>): Promise<void> { this.notImplemented(); return Promise.resolve(); }
+  deleteThread(_id: string): Promise<void> { this.notImplemented(); return Promise.resolve(); }
+
+  // Chat Messages
+  addMessage(_message: Omit<AiMessage, 'id' | 'createdAt'>): Promise<string> { this.notImplemented(); return Promise.resolve(''); }
+  getMessages(_threadId: string): Promise<AiMessage[]> { this.notImplemented(); return Promise.resolve([]); }
+  deleteMessages(_threadId: string): Promise<void> { this.notImplemented(); return Promise.resolve(); }
 
   exportAll(): Promise<ExportBundle> {
     this.notImplemented(); return Promise.resolve({ holdings: [], categories: [], pricePoints: [], modelPrefs: null, aiCache: [], priceAlerts: [], insights: [] });

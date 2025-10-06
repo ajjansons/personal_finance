@@ -15,7 +15,9 @@ import {
   Transaction,
   PriceAlert,
   PriceAlertCreate,
-  InsightRecord
+  InsightRecord,
+  AiThread,
+  AiMessage
 } from './types';
 import type { ResearchReport } from '@/features/research/types';
 
@@ -363,8 +365,70 @@ export class DexiePortfolioRepository implements PortfolioRepository {
     await db.researchReports.delete(id);
   }
 
+  // Chat Threads
+  async createThread(thread: Omit<AiThread, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+    const id = nanoid('thread-');
+    const now = new Date().toISOString();
+    await db.aiThreads.put({ ...thread, id, createdAt: now, updatedAt: now } as AiThread);
+    return id;
+  }
+
+  async getThread(id: string): Promise<AiThread | null> {
+    const thread = await db.aiThreads.get(id);
+    return thread || null;
+  }
+
+  async getThreads(opts?: { pageRoute?: string; limit?: number }): Promise<AiThread[]> {
+    let collection = db.aiThreads.orderBy('updatedAt').reverse();
+
+    if (opts?.pageRoute) {
+      collection = db.aiThreads.where('pageRoute').equals(opts.pageRoute).reverse();
+    }
+
+    if (opts?.limit) {
+      return await collection.limit(opts.limit).toArray();
+    }
+
+    return await collection.toArray();
+  }
+
+  async updateThread(id: string, updates: Partial<Omit<AiThread, 'id' | 'createdAt'>>): Promise<void> {
+    const existing = await db.aiThreads.get(id);
+    if (!existing) return;
+
+    const updatedAt = new Date().toISOString();
+    await db.aiThreads.put({ ...existing, ...updates, id, updatedAt });
+  }
+
+  async deleteThread(id: string): Promise<void> {
+    await db.transaction('rw', [db.aiThreads, db.aiMessages], async () => {
+      await db.aiThreads.delete(id);
+      await db.aiMessages.where('threadId').equals(id).delete();
+    });
+  }
+
+  // Chat Messages
+  async addMessage(message: Omit<AiMessage, 'id' | 'createdAt'>): Promise<string> {
+    const id = nanoid('msg-');
+    const createdAt = new Date().toISOString();
+    await db.aiMessages.put({ ...message, id, createdAt } as AiMessage);
+
+    // Update thread's updatedAt timestamp
+    await this.updateThread(message.threadId, {});
+
+    return id;
+  }
+
+  async getMessages(threadId: string): Promise<AiMessage[]> {
+    return await db.aiMessages.where('threadId').equals(threadId).sortBy('createdAt');
+  }
+
+  async deleteMessages(threadId: string): Promise<void> {
+    await db.aiMessages.where('threadId').equals(threadId).delete();
+  }
+
   async clearAll(): Promise<void> {
-    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.priceAlerts, db.insights, db.researchReports], async () => {
+    await db.transaction('rw', [db.holdings, db.categories, db.pricePoints, db.transactions, db.priceAlerts, db.insights, db.researchReports, db.aiThreads, db.aiMessages], async () => {
       await db.holdings.clear();
       await db.categories.clear();
       await db.pricePoints.clear();
@@ -372,6 +436,8 @@ export class DexiePortfolioRepository implements PortfolioRepository {
       await db.priceAlerts.clear();
       await db.insights.clear();
       await db.researchReports.clear();
+      await db.aiThreads.clear();
+      await db.aiMessages.clear();
     });
   }
 }
