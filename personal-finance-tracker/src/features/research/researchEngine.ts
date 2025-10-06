@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { callAi } from '@/ai/client';
 import { nanoid } from '@/lib/repository/nanoid';
 import { getRepository } from '@/lib/repository';
+import { useUIStore, AI_PROVIDER_DEFAULTS } from '@/lib/state/uiStore';
 import type {
   ResearchReport,
   ReportSection,
@@ -58,13 +59,17 @@ export async function generateResearchReport(
 ): Promise<ResearchReport | null> {
   const { subjectId, holdingName, signal } = params;
   const repo = getRepository();
+  const uiState = useUIStore.getState();
+  const provider = uiState.aiProvider ?? 'openai';
+  const providerDefaults = AI_PROVIDER_DEFAULTS[provider] ?? AI_PROVIDER_DEFAULTS.openai;
+  const selectedModel = uiState.modelByFeature?.research ?? providerDefaults.research;
 
   try {
     console.info('[research] Starting report generation for:', holdingName);
 
     // Step 1: Plan the research sections with AI
     onProgress?.({ step: 'planning', progress: 10, message: 'Planning research structure...' });
-    const sectionPlans = await planResearchSections(params, signal);
+    const sectionPlans = await planResearchSections(params, selectedModel, signal);
     if (!sectionPlans || sectionPlans.length === 0) {
       console.warn('[research] Failed to plan sections');
       return null;
@@ -97,7 +102,7 @@ export async function generateResearchReport(
         totalSections: sectionPlans.length
       });
 
-      const section = await generateSection(plan, params, sources, i, signal);
+      const section = await generateSection(plan, params, sources, i, selectedModel, signal);
       if (section) {
         sections.push(section);
       }
@@ -115,7 +120,7 @@ export async function generateResearchReport(
       subjectKey: subjectId,
       subjectName: holdingName,
       createdAt: new Date().toISOString(),
-      modelId: 'gpt-4o', // TODO: Get from model prefs
+      modelId: selectedModel,
       status: 'completed',
       sections,
       sources: sources.map((s, idx) => ({
@@ -128,7 +133,8 @@ export async function generateResearchReport(
       })),
       metadata: {
         holdingSymbol: params.holdingSymbol,
-        holdingType: params.holdingType
+        holdingType: params.holdingType,
+        holdingCategoryId: params.holdingCategoryId
       }
     };
 
@@ -153,6 +159,7 @@ export async function generateResearchReport(
  */
 async function planResearchSections(
   params: ResearchParams,
+  modelOverride: string | undefined,
   signal?: AbortSignal
 ): Promise<SectionPlan[]> {
   const prompt = buildPlannerPrompt(params);
@@ -162,6 +169,7 @@ async function planResearchSections(
     system: 'You are an investment research analyst. Return only valid JSON.',
     messages: [{ role: 'user', content: prompt }],
     cacheTtlSec: 0, // Don't cache planning
+    modelOverride,
     abortSignal: signal
   });
 
@@ -248,6 +256,7 @@ async function generateSection(
   params: ResearchParams,
   sources: FetchedSource[],
   order: number,
+  modelOverride: string | undefined,
   signal?: AbortSignal
 ): Promise<ReportSection | null> {
   const prompt = buildSectionPrompt(plan.title, plan.description, params, sources);
@@ -257,6 +266,7 @@ async function generateSection(
     system: 'You are an investment research analyst. Return only valid JSON with markdown content.',
     messages: [{ role: 'user', content: prompt }],
     cacheTtlSec: 5 * 60, // Cache for 5 minutes
+    modelOverride,
     abortSignal: signal
   });
 
@@ -321,3 +331,4 @@ export async function deleteReport(reportId: string): Promise<void> {
   const repo = getRepository();
   await repo.deleteResearchReport(reportId);
 }
+

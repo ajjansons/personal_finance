@@ -3,10 +3,13 @@ import { useUIStore, AI_PROVIDER_DEFAULTS } from '@/lib/state/uiStore';
 import { nanoid } from '@/lib/repository/nanoid';
 import type { AiClientRequest, AiClientResult, AiCacheValue, AiProviderId, AiUsage, ProviderRecommendedModels, AiFeature, AiError } from './types';
 import { openAiProvider } from './providers/openai';
+import { anthropicProvider } from './providers/anthropic';
+import { xaiProvider } from './providers/xai';
 
 const providerRegistry = {
   openai: openAiProvider,
-  // anthropic and xai will be wired in future parts
+  anthropic: anthropicProvider,
+  xai: xaiProvider
 } as const;
 
 function resolveProvider(id: AiProviderId | null | undefined) {

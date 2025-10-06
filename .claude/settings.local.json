@@ -5,7 +5,14 @@
       "Bash(npm run dev:*)",
       "Bash(npm run lint)",
       "Bash(npm run build:*)",
-      "Bash(npm test)"
+      "Bash(npm test)",
+      "Bash(cat:*)",
+      "Bash(npm install:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd AI-powered research engine with real-time progress tracking\n\n- Add comprehensive research report generation with AI planning and section synthesis\n- Implement web fetchers for EDGAR filings, IR pages, and public web sources\n- Add markdown report viewer with TOC, syntax highlighting, and export functionality\n- Improve insights engine with keyword-based sentiment analysis and confidence scoring\n- Replace browser prompts with styled Dialog modals matching app design\n- Add real-time progress tracking for research generation (fixes stuck at 80% issue)\n- Optimize insights refresh with parallel fetching and 10s timeouts per provider\n- Add price alert and note actions to insights cards\n- Upgrade database schema to v7 with researchReports table\n- Add research integration to Holdings table with \"Research\" button\n- Add open_research tool for AI assistant\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nComplete research feature with background processing and AI integration\n\n- Add /research route to display Research Library page with all saved reports\n- Implement background research job processing with progress toasts\n- Add ResearchJobToasts component in bottom-left corner for parallel research tracking\n- Add search_research AI tool to search through all saved research reports\n- Support sorting by holding, category, or most recent on Research page\n- Enable chat widget to query research data with direct section references\n- Fix missing route that caused Research page error\n- Add useResearchReports hook for querying saved reports\n- Implement researchJobsStore for managing parallel background jobs\n- Each research job shows real-time progress and can be cancelled\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

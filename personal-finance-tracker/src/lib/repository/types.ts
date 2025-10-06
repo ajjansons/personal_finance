@@ -113,6 +113,8 @@ export type InsightRecord = {
   createdAt: string;
   displayCurrency: FiatCurrency;
   items: InsightItem[];
+  provider?: string;
+  modelId?: string;
 };
 
 export type HoldingCreate = Omit<Holding, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted'>;

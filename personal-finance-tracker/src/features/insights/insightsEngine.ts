@@ -393,7 +393,9 @@ export async function runInsightsJob(options?: { signal?: AbortSignal }): Promis
     runId,
     createdAt: now.toISOString(),
     displayCurrency: state.displayCurrency,
-    items: [] as InsightItem[]
+    items: [] as InsightItem[],
+    provider: state.aiProvider || undefined,
+    modelId: state.modelByFeature?.insights || undefined
   };
 
   // Build provider calls with individual timeouts

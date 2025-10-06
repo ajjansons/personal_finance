@@ -7,6 +7,7 @@ import { callAi } from '@/ai/client';
 import type { AiMessage, AiProviderId } from '@/ai/types';
 import { nanoid } from '@/lib/repository/nanoid';
 import { useHoldings } from '@/hooks/useHoldings';
+import { useResearchReports } from '@/hooks/useResearchReports';
 import { useCategories } from '@/hooks/useCategories';
 
 const PROVIDER_ENV_KEYS: Record<AiProviderId, string> = {
@@ -15,7 +16,7 @@ const PROVIDER_ENV_KEYS: Record<AiProviderId, string> = {
   xai: 'VITE_XAI_API_KEY'
 };
 
-type PageKey = 'dashboard' | 'holdings' | 'heat-map' | 'categories' | 'settings' | 'unknown';
+type PageKey = 'dashboard' | 'holdings' | 'heat-map' | 'categories' | 'settings' | 'research' | 'research-detail' | 'unknown';
 
 const QUICK_PROMPTS: Record<PageKey, string[]> = {
   dashboard: ['Daily brief', 'What changed since last week?'],
@@ -23,9 +24,22 @@ const QUICK_PROMPTS: Record<PageKey, string[]> = {
   'heat-map': ['Top movers today?'],
   categories: ['Are deposits aligned?'],
   settings: [],
+  research: ['Summarize the latest reports', 'What risks were highlighted?'],
+  'research-detail': ['What are the key findings?', 'List the sources cited.'],
   unknown: []
 };
 
+function formatShortDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function summarizeForContext(markdown: string, maxLength = 200): string {
+  const stripped = markdown.replace(/[\#*_`>]/g, '').replace(/\s+/g, ' ').trim();
+  if (stripped.length <= maxLength) return stripped;
+  return stripped.slice(0, maxLength - 3) + '...';
+}
 function useAiAvailability(provider: AiProvider | null) {
   if (!provider) {
     return { available: false, reason: 'Select an AI provider in Settings to enable the assistant.' };
@@ -40,6 +54,8 @@ function useAiAvailability(provider: AiProvider | null) {
 }
 
 function getPageKey(pathname: string): PageKey {
+  if (pathname.startsWith('/research/')) return 'research-detail';
+  if (pathname === '/research' || pathname.startsWith('/research?')) return 'research';
   if (pathname === '/' || pathname.startsWith('/?')) return 'dashboard';
   if (pathname.startsWith('/holdings')) return 'holdings';
   if (pathname.startsWith('/heat-map')) return 'heat-map';
@@ -72,6 +88,9 @@ function useAssistantContext() {
   const displayCurrency = useUIStore((s) => s.displayCurrency);
   const { data: holdings = [] } = useHoldings();
   const { data: categories = [] } = useCategories();
+  const isResearchPage = pageKey === 'research' || pageKey === 'research-detail';
+  const currentResearchId = pageKey === 'research-detail' ? location.pathname.split('/')?.[2] ?? null : null;
+  const { data: researchReports = [] } = useResearchReports({ enabled: isResearchPage, limit: 6 });
 
   const activeHoldings = useMemo(() => holdings.filter((h) => !h.isDeleted), [holdings]);
   const typeBreakdown = useMemo(() => {
@@ -100,17 +119,46 @@ function useAssistantContext() {
       lines.push('Heat map colors reflect relative performance; selection state is not tracked yet.');
     } else if (pageKey === 'categories') {
       lines.push(`Categories configured: ${categories.length}`);
+    } else if (isResearchPage) {
+      lines.push(`Research reports stored: ${researchReports.length}`);
+      if (currentResearchId) {
+        const focus = researchReports.find((report) => report.id === currentResearchId);
+        if (focus) {
+          lines.push(`Focused report: ${focus.subjectName} (${formatShortDate(focus.createdAt)})`);
+        }
+      }
     }
 
     return lines;
-  }, [activeHoldings.length, categories.length, displayCurrency, pageKey, pageName, typeBreakdown]);
+  }, [activeHoldings.length, categories.length, displayCurrency, pageKey, pageName, typeBreakdown, isResearchPage, researchReports, currentResearchId]);
+
+  const researchAttachment = useMemo(() => {
+    if (!isResearchPage || researchReports.length === 0) return undefined;
+    const ordered = [...researchReports];
+    if (currentResearchId) {
+      ordered.sort((a, b) => (a.id === currentResearchId ? -1 : b.id === currentResearchId ? 1 : 0));
+    }
+    const selected = ordered.slice(0, 4);
+    const lines: string[] = ['Research library context:'];
+    selected.forEach((report) => {
+      lines.push(`Report ${report.subjectName} (id: ${report.id}, model: ${report.modelId}, created ${formatShortDate(report.createdAt)})`);
+      const sections = [...report.sections]
+        .sort((a, b) => a.order - b.order)
+        .slice(0, 3);
+      sections.forEach((section) => {
+        lines.push(`- [${report.subjectName} | Section: ${section.title}] ${summarizeForContext(section.bodyMd)}`);
+      });
+    });
+    lines.push('When referencing these reports, cite them using [Subject | Section: Section Title].');
+    return lines.join('\n');
+  }, [isResearchPage, researchReports, currentResearchId]);
 
   const quickPrompts = QUICK_PROMPTS[pageKey] ?? [];
 
-  return { pageKey, pageName, contextSummary, quickPrompts };
+  return { pageKey, pageName, contextSummary, quickPrompts, researchAttachment };
 }
 
-function buildSystemPrompt(pageName: string, contextSummary: string[], adviceDisclaimer: boolean): string {
+function buildSystemPrompt(pageName: string, contextSummary: string[], adviceDisclaimer: boolean, researchAttachment?: string): string {
   const base = [
     'You are the Portfolio Copilot for a local-first personal finance tracker.',
     'Use only the information supplied in the conversation. If you are uncertain, ask follow-up questions.',
@@ -123,7 +171,7 @@ function buildSystemPrompt(pageName: string, contextSummary: string[], adviceDis
     ? ['Context:', ...contextSummary.map((line) => `- ${line}`)].join('\n')
     : 'Context: (no additional data captured)';
 
-  return `${base.join('\n')}\n\n${contextBlock}`;
+  return `${base.join('\n')}\n\n${contextBlock}${researchAttachment ? `\n\n${researchAttachment}` : ''}`;
 }
 
 export default function AssistantDock() {
@@ -131,11 +179,11 @@ export default function AssistantDock() {
   const setAiDockOpen = useUIStore((s) => s.setAiDockOpen);
   const aiProvider = useUIStore((s) => s.aiProvider);
   const adviceDisclaimerEnabled = useUIStore((s) => s.adviceDisclaimerEnabled);
-  const { pageName, contextSummary, quickPrompts } = useAssistantContext();
+  const { pageName, contextSummary, quickPrompts, researchAttachment } = useAssistantContext();
   const { available, reason } = useAiAvailability(aiProvider);
   const systemPrompt = useMemo(
-    () => buildSystemPrompt(pageName, contextSummary, adviceDisclaimerEnabled),
-    [pageName, contextSummary, adviceDisclaimerEnabled]
+    () => buildSystemPrompt(pageName, contextSummary, adviceDisclaimerEnabled, researchAttachment),
+    [pageName, contextSummary, adviceDisclaimerEnabled, researchAttachment]
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -311,3 +359,15 @@ export default function AssistantDock() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+

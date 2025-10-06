@@ -4,6 +4,7 @@ import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
 import { useUIStore } from '@/lib/state/uiStore';
 import AssistantDock from '@/components/ai/AssistantDock';
+import ResearchJobToasts from '@/components/research/ResearchJobToasts';
 
 export default function App() {
   const theme = useUIStore((s) => s.theme);
@@ -22,7 +23,11 @@ export default function App() {
         <Outlet />
       </main>
       <Footer />
+      <ResearchJobToasts />
       <AssistantDock />
     </div>
   );
 }
+
+
+

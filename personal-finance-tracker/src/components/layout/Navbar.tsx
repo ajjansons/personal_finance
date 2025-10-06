@@ -60,6 +60,17 @@ export default function Navbar() {
             Categories
           </NavLink>
           <NavLink
+            to="/research"
+            className={({ isActive }) => [
+              baseLinkClasses,
+              isActive
+                ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                : 'text-slate-300 hover:text-slate-100 hover:bg-slate-800/30'
+            ].join(' ')}
+          >
+            Research
+          </NavLink>
+          <NavLink
             to="/settings"
             className={({ isActive }) => [
               baseLinkClasses,

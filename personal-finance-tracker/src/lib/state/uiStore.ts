@@ -52,9 +52,9 @@ const AI_DEFAULTS: Record<AiProvider, ModelByFeature> = {
     research: 'gpt-5'
   },
   anthropic: {
-    chat: 'claude-3.5-sonnet',
-    insights: 'claude-3.5-sonnet',
-    research: 'claude-3-opus-4.1'
+    chat: 'claude-sonnet-4.5',
+    insights: 'claude-sonnet-4.5',
+    research: 'claude-sonnet-4.5-reasoning'
   },
   xai: {
     chat: 'grok-4',

@@ -40,6 +40,7 @@ export type ResearchReport = {
   metadata?: {
     holdingSymbol?: string;
     holdingType?: string;
+    holdingCategoryId?: string;
     sectorCategory?: string;
   };
 };
@@ -50,6 +51,7 @@ export type ResearchParams = {
   holdingSymbol?: string;
   holdingName: string;
   holdingType?: string;
+  holdingCategoryId?: string;
   signal?: AbortSignal;
 };
 
@@ -66,3 +68,5 @@ export type FetchedSource = {
   content: string;
   excerpt?: string;
 };
+
+

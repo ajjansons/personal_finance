@@ -4,7 +4,6 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import HoldingForm from '@/components/forms/HoldingForm';
 import HoldingsTable from '@/components/tables/HoldingsTable';
-import ResearchDialog from '@/components/research/ResearchDialog';
 import { useHoldings } from '@/hooks/useHoldings';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useCategories } from '@/hooks/useCategories';
@@ -19,12 +18,11 @@ import { computeHoldingValuation, normalizeCurrency } from '@/lib/calculations';
 import { useUIStore } from '@/lib/state/uiStore';
 import { formatCurrency } from '@/lib/utils/date';
 import type { Holding } from '@/lib/repository/types';
-import type { ResearchParams } from '@/features/research/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { executeToolByName } from '@/ai/tools';
 import type { ToolExecutionFailure, ToolExecutionSuccess } from '@/ai/tools';
 import { usePriceAlerts } from '@/hooks/usePriceAlerts';
-
+import { useResearchJobsStore } from '@/lib/state/researchJobsStore';
 const TYPES = ['stock', 'crypto', 'cash', 'real_estate', 'other'] as const;
 
 type HoldingRowMetrics = Holding & {
@@ -76,6 +74,7 @@ export default function Holdings() {
   const { rate } = useUsdEurRate();
   const displayCurrency = useUIStore((s) => s.displayCurrency);
   const qc = useQueryClient();
+  const startResearchJob = useResearchJobsStore((s) => s.startJob);
 
   const [open, setOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -102,9 +101,6 @@ export default function Holdings() {
   const [alertError, setAlertError] = useState<string | null>(null);
   const [alertSaving, setAlertSaving] = useState(false);
   const { alerts, isLoading: alertsLoading, createAlert, deleteAlert } = usePriceAlerts(explainHolding?.id);
-
-  const [researchDialogOpen, setResearchDialogOpen] = useState(false);
-  const [researchParams, setResearchParams] = useState<ResearchParams | null>(null);
 
   const [whatIfHolding, setWhatIfHolding] = useState<HoldingRowMetrics | null>(null);
   const [whatIfDelta, setWhatIfDelta] = useState('0');
@@ -283,15 +279,18 @@ export default function Holdings() {
   };
 
   const handleResearch = (row: HoldingRowMetrics) => {
-    setResearchParams({
+    startResearchJob({
       subjectType: 'holding',
       subjectId: row.id,
       holdingSymbol: row.symbol,
       holdingName: row.name,
-      holdingType: row.type
+      holdingType: row.type,
+      holdingCategoryId: row.categoryId
     });
-    setResearchDialogOpen(true);
+    setFlash(`Research started for ${row.name}.`);
+    setTimeout(() => setFlash(null), 2000);
   };
+
 
   const handleGenerateRebalance = useCallback(async () => {
     setRebalanceLoading(true);
@@ -977,12 +976,19 @@ export default function Holdings() {
         )}
       </Dialog>
 
-      <ResearchDialog
-        open={researchDialogOpen}
-        onOpenChange={setResearchDialogOpen}
-        params={researchParams}
-      />
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
