@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
+import Dialog from '@/components/ui/Dialog';
 
 export type ChatMessage = {
   id: string;
@@ -23,6 +24,10 @@ type ChatPanelProps = {
   aiUnavailableReason?: string | null;
   contextSummary?: string[];
   adviceDisclaimerEnabled?: boolean;
+  threadTitle?: string;
+  threadPinned?: boolean;
+  onRenameThread?: (newTitle: string) => void;
+  onTogglePin?: () => void;
 };
 
 export default function ChatPanel({
@@ -36,9 +41,15 @@ export default function ChatPanel({
   quickPrompts,
   aiUnavailableReason,
   contextSummary,
-  adviceDisclaimerEnabled
+  adviceDisclaimerEnabled,
+  threadTitle,
+  threadPinned,
+  onRenameThread,
+  onTogglePin
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const derivedDisabled = disabled || busy;
 
@@ -61,6 +72,19 @@ export default function ChatPanel({
     onSend(prompt);
   };
 
+  const handleRenameClick = () => {
+    setNewTitle(threadTitle || '');
+    setRenameDialogOpen(true);
+  };
+
+  const handleRenameSubmit = () => {
+    const trimmed = newTitle.trim();
+    if (trimmed && onRenameThread) {
+      onRenameThread(trimmed);
+      setRenameDialogOpen(false);
+    }
+  };
+
   const contextList = useMemo(() => {
     if (!contextSummary || contextSummary.length === 0) return null;
     return (
@@ -73,26 +97,58 @@ export default function ChatPanel({
   }, [contextSummary]);
 
   return (
-    <div className="flex h-[640px] w-[460px] flex-col rounded-[32px] border border-slate-700/60 bg-slate-900/95 p-5 shadow-2xl shadow-blue-950/40 backdrop-blur-md">
-      <header className="mb-3 flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-widest text-blue-300/80">Portfolio Assistant</p>
-          <h3 className="text-lg font-semibold text-slate-100">{pageName}</h3>
-          {adviceDisclaimerEnabled && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-slate-800/80 px-2 py-0.5 text-[11px] font-medium text-slate-300">
-              ⚖️ Not investment advice
-            </span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button type="button" size="sm" variant="ghost" onClick={onClear} disabled={messages.length === 0}>
-            Reset
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </header>
+    <>
+      <div className="flex h-[640px] w-[460px] flex-col rounded-[32px] border border-slate-700/60 bg-slate-900/95 p-5 shadow-2xl shadow-blue-950/40 backdrop-blur-md">
+        <header className="mb-3 flex items-start justify-between gap-3">
+          <div className="flex-1 space-y-1">
+            <p className="text-xs uppercase tracking-widest text-blue-300/80">Portfolio Assistant</p>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-slate-100">{threadTitle || pageName}</h3>
+              {threadPinned && (
+                <span className="text-amber-400" title="Pinned thread">
+                  📌
+                </span>
+              )}
+            </div>
+            {adviceDisclaimerEnabled && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-800/80 px-2 py-0.5 text-[11px] font-medium text-slate-300">
+                ⚖️ Not investment advice
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              {onRenameThread && (
+                <button
+                  type="button"
+                  onClick={handleRenameClick}
+                  className="rounded-lg px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800/60 hover:text-slate-200"
+                  title="Rename thread"
+                >
+                  ✏️
+                </button>
+              )}
+              {onTogglePin && (
+                <button
+                  type="button"
+                  onClick={onTogglePin}
+                  className="rounded-lg px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800/60 hover:text-slate-200"
+                  title={threadPinned ? 'Unpin thread' : 'Pin thread'}
+                >
+                  {threadPinned ? '📌' : '📍'}
+                </button>
+              )}
+              <Button type="button" size="sm" variant="ghost" onClick={onClear} disabled={messages.length === 0}>
+                New Chat
+              </Button>
+            </div>
+          </div>
+        </header>
 
       {contextList && <div className="mb-4 rounded-3xl bg-slate-800/60 p-4">{contextList}</div>}
 
@@ -182,7 +238,40 @@ export default function ChatPanel({
           </Button>
         </div>
       </form>
-    </div>
+      </div>
+
+      <Dialog
+        open={renameDialogOpen}
+        onOpenChange={setRenameDialogOpen}
+        title="Rename Thread"
+        description="Enter a new name for this conversation thread."
+      >
+        <div className="space-y-4">
+          <input
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleRenameSubmit();
+              }
+            }}
+            className="w-full rounded-lg border border-slate-700/60 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            placeholder="Enter thread title..."
+            autoFocus
+          />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setRenameDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleRenameSubmit} disabled={!newTitle.trim()}>
+              Rename
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </>
   );
 }
 

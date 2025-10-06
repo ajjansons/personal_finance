@@ -9,6 +9,7 @@ import { nanoid } from '@/lib/repository/nanoid';
 import { useHoldings } from '@/hooks/useHoldings';
 import { useResearchReports } from '@/hooks/useResearchReports';
 import { useCategories } from '@/hooks/useCategories';
+import { useChatThread } from '@/hooks/useChatThread';
 
 const PROVIDER_ENV_KEYS: Record<AiProviderId, string> = {
   openai: 'VITE_OPENAI_API_KEY',
@@ -175,18 +176,31 @@ function buildSystemPrompt(pageName: string, contextSummary: string[], adviceDis
 }
 
 export default function AssistantDock() {
+  const location = useLocation();
   const aiDockOpen = useUIStore((s) => s.aiDockOpen);
   const setAiDockOpen = useUIStore((s) => s.setAiDockOpen);
   const aiProvider = useUIStore((s) => s.aiProvider);
   const adviceDisclaimerEnabled = useUIStore((s) => s.adviceDisclaimerEnabled);
-  const { pageName, contextSummary, quickPrompts, researchAttachment } = useAssistantContext();
+  const { pageKey, pageName, contextSummary, quickPrompts, researchAttachment } = useAssistantContext();
   const { available, reason } = useAiAvailability(aiProvider);
   const systemPrompt = useMemo(
     () => buildSystemPrompt(pageName, contextSummary, adviceDisclaimerEnabled, researchAttachment),
     [pageName, contextSummary, adviceDisclaimerEnabled, researchAttachment]
   );
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Use thread persistence hook
+  const {
+    currentThread,
+    messages,
+    setMessages,
+    isLoading: threadLoading,
+    addMessage,
+    updateMessage,
+    clearThread,
+    renameThread,
+    togglePin
+  } = useChatThread(location.pathname);
+
   const [isSending, setIsSending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
@@ -212,7 +226,7 @@ export default function AssistantDock() {
       messagesRef.current = next;
       return next;
     });
-  }, []);
+  }, [setMessages]);
 
   const handleSend = useCallback(
     async (rawInput: string) => {
@@ -229,6 +243,16 @@ export default function AssistantDock() {
         role: 'user',
         content: input
       };
+
+      // Save user message to DB immediately
+      if (currentThread) {
+        const repo = (await import('@/lib/repository')).getRepository();
+        await repo.addMessage({
+          threadId: currentThread.id,
+          role: 'user',
+          content: input
+        });
+      }
 
       const requestHistory: AiMessage[] = messagesRef.current.map((message) => ({
         role: message.role,
@@ -280,19 +304,32 @@ export default function AssistantDock() {
         const toolCalls = result.toolCalls?.filter(Boolean) ?? [];
         const showAppDataBadge = toolCalls.length > 0 && /\d/.test(finalText);
 
+        const finalMessage: ChatMessage = {
+          id: assistantId,
+          role: 'assistant',
+          content: finalText,
+          streaming: false,
+          toolCalls,
+          showAppDataBadge
+        };
+
         setMessagesSync((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantId
-              ? {
-                  ...msg,
-                  content: finalText,
-                  streaming: false,
-                  toolCalls,
-                  showAppDataBadge
-                }
-              : msg
-          )
+          prev.map((msg) => (msg.id === assistantId ? finalMessage : msg))
         );
+
+        // Save assistant message to DB
+        if (currentThread) {
+          const { getRepository } = await import('@/lib/repository');
+          const repo = getRepository();
+          await repo.addMessage({
+            threadId: currentThread.id,
+            role: 'assistant',
+            content: finalText,
+            provider: result.providerId,
+            modelId: result.model,
+            toolCalls
+          });
+        }
       } else {
         const errorMessage = result.error?.message ?? 'Assistant failed to respond.';
         setMessagesSync((prev) =>
@@ -313,15 +350,15 @@ export default function AssistantDock() {
 
       setIsSending(false);
     },
-    [available, systemPrompt, setMessagesSync, aiProvider]
+    [available, systemPrompt, setMessagesSync, aiProvider, updateMessage, currentThread]
   );
 
-  const handleClear = useCallback(() => {
+  const handleClear = useCallback(async () => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setMessagesSync(() => []);
+    await clearThread();
     setIsSending(false);
-  }, [setMessagesSync]);
+  }, [clearThread]);
 
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4">
@@ -338,6 +375,10 @@ export default function AssistantDock() {
           aiUnavailableReason={reason}
           contextSummary={contextSummary}
           adviceDisclaimerEnabled={adviceDisclaimerEnabled}
+          threadTitle={currentThread?.title}
+          threadPinned={currentThread?.pinned}
+          onRenameThread={renameThread}
+          onTogglePin={togglePin}
         />
       )}
       <button

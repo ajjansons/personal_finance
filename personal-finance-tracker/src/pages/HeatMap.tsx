@@ -152,46 +152,38 @@ const TVTreemapTile = (props: any) => {
   } = props;
 
   const datum = props?.payload ?? props;
+
+  // Check if this is a parent/root node with children
   const hasChildren = datum && Array.isArray(datum.children) && datum.children.length > 0;
 
   if (width <= 2 || height <= 2) return null;
 
-  // Ignore group/root nodes � we draw headings outside the treemap
-  if (hasChildren || !datum) return null;
+  // Only skip rendering for nodes that have children (parent nodes)
+  // But ALSO check: if it has children but ALSO has our leaf data (symbol, holdingId), render it anyway
+  if (hasChildren && !datum.holdingId) return null;
+  if (!datum) return null;
 
-  const safeChangePct =
-    typeof datum.changePct === 'number' && Number.isFinite(datum.changePct) ? datum.changePct : 0;
-  const color =
-    typeof datum.color === 'string' && datum.color?.length ? datum.color : getHeatColor(safeChangePct);
-  const textColor =
-    typeof datum.textColor === 'string' && datum.textColor?.length
-      ? datum.textColor
-      : getTextColor(color);
-  const centerX = x + width / 2;
-  const centerY = y + height / 2;
-  const changeLabel =
-    typeof datum.changeLabel === 'string' && datum.changeLabel?.length
-      ? datum.changeLabel
-      : formatChangeLabel(safeChangePct);
-  const symbol = typeof datum.symbol === 'string' ? datum.symbol : '';
-  const displayNameCandidate =
-    typeof datum.displayName === 'string' && datum.displayName.trim().length > 0
-      ? datum.displayName
-      : typeof datum.fullName === 'string' && datum.fullName.trim().length > 0
-        ? datum.fullName
-        : typeof datum.name === 'string'
-          ? datum.name
-          : symbol;
-  const displayName = displayNameCandidate.toString();
+  // Extract data - Recharts may nest our data in different ways
+  const safeChangePct = Number.isFinite(datum.changePct) ? datum.changePct : 0;
+  const color = datum.color || getHeatColor(safeChangePct);
+  const textColor = datum.textColor || getTextColor(color);
+  // Center coordinates relative to the translated group (not absolute)
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const changeLabel = datum.changeLabel || formatChangeLabel(safeChangePct);
+  const symbol = datum.symbol || '';
+  const displayName = datum.displayName || datum.fullName || datum.name || symbol || '';
 
 
   const area = Math.max(width * height, 1);
   const base = Math.sqrt(area);
-  const nameFontSize = clamp(Math.floor(base * 0.22), 7, 18);
-  const changeFontSize = clamp(Math.floor(nameFontSize * 0.68), 6, 14);
+  const nameFontSize = clamp(Math.floor(base * 0.22), 6, 18);
+  const changeFontSize = clamp(Math.floor(base * 0.18), 5, 12);
 
-  const showName = width >= 10 && height >= 10;
-  const showChange = width >= 16 && height >= changeFontSize * 1.6;
+  // Show symbol if tile is large enough for readable text
+  const showName = width >= 35 && height >= 20;
+  // Always show change % if tile can fit it - prioritize this over symbol
+  const showChange = width >= 20 && height >= 12;
 
   let nameLabel = displayName;
   if (showName) {
@@ -208,7 +200,7 @@ const TVTreemapTile = (props: any) => {
       {showName && nameLabel && (
         <text
           x={centerX}
-          y={showChange ? centerY - changeFontSize * 0.35 : centerY}
+          y={showChange ? centerY - changeFontSize * 0.6 : centerY}
           fill={textColor}
           fontSize={nameFontSize}
           fontWeight={600}
@@ -222,7 +214,7 @@ const TVTreemapTile = (props: any) => {
       {showChange && (
         <text
           x={centerX}
-          y={centerY + changeFontSize * 0.9}
+          y={showName ? centerY + nameFontSize * 0.4 : centerY}
           fill={safeChangePct >= 0 ? '#dcfce7' : '#fee2e2'}
           fontSize={changeFontSize}
           fontWeight={600}
@@ -465,10 +457,8 @@ export default function HeatMap() {
       <Treemap
         data={[{ name: "root", children: nodes }]}
         dataKey="size"
-        nameKey="name"
         stroke="rgba(15,23,42,0.35)"
-        isAnimationActive
-        animationDuration={400}
+        isAnimationActive={false}
         content={<TVTreemapTile />}
       >
         <Tooltip content={renderTooltip} wrapperStyle={{ outline: "none" }} />
