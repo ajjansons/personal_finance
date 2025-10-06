@@ -21,8 +21,8 @@ const FEATURE_COPY: Record<AiFeature, string> = {
 
 const RECOMMENDED_MODELS: Record<AiProvider, string[]> = {
   openai: ["gpt-5-mini", "gpt-5"],
-  anthropic: ["claude-3.5-sonnet", "claude-3-opus-4.1", "claude-3.5-haiku"],
-  xai: ["grok-4", "grok-4-fast", "grok-3", "grok-3-mini"]
+  anthropic: ["claude-sonnet-4.5", "claude-sonnet-4.5-reasoning"],
+  xai: ["grok-4", "grok-4-fast"]
 };
 
 const ENV_KEY_BY_PROVIDER: Record<AiProvider, string> = {
