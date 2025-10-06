@@ -9,6 +9,8 @@ import {
   AiCacheEntry,
   PriceAlert,
   InsightRecord,
+  AiThread,
+  AiMessage,
 } from './repository/types';
 import type { ResearchReport } from '@/features/research/types';
 import { SCHEMA_VERSION } from './constants';
@@ -26,6 +28,8 @@ export class AppDB extends Dexie {
   priceAlerts!: Table<PriceAlert, string>;
   insights!: Table<InsightRecord, string>;
   researchReports!: Table<ResearchReport, string>;
+  aiThreads!: Table<AiThread, string>;
+  aiMessages!: Table<AiMessage, string>;
 
   constructor() {
     super('personal-finance-tracker');
@@ -157,6 +161,23 @@ export class AppDB extends Dexie {
         insights: 'id, runId, createdAt',
         priceAlerts: 'id, holdingId, createdAt',
         researchReports: 'id, subjectKey, createdAt, subjectType'
+      });
+
+    // v8: introduce aiThreads and aiMessages for chat history
+    this.version(8)
+      .stores({
+        holdings: 'id, type, categoryId, name',
+        pricePoints: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        transactions: 'id, holdingId, dateISO, [holdingId+dateISO]',
+        categories: 'id, name, sortOrder',
+        appMeta: 'id',
+        modelPrefs: 'id',
+        aiCache: 'id,&key,createdAt',
+        insights: 'id, runId, createdAt',
+        priceAlerts: 'id, holdingId, createdAt',
+        researchReports: 'id, subjectKey, createdAt, subjectType',
+        aiThreads: 'id, pinned, pageRoute, updatedAt, createdAt',
+        aiMessages: 'id, threadId, createdAt, [threadId+createdAt]'
       });
   }
 }

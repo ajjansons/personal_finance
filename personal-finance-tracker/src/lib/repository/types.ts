@@ -117,6 +117,26 @@ export type InsightRecord = {
   modelId?: string;
 };
 
+export type AiThread = {
+  id: string;
+  title: string;
+  pageRoute?: string;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AiMessage = {
+  id: string;
+  threadId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  createdAt: string;
+  provider?: string;
+  modelId?: string;
+  toolCalls?: string[];
+};
+
 export type HoldingCreate = Omit<Holding, 'id' | 'createdAt' | 'updatedAt' | 'isDeleted'>;
 export type CategoryCreate = Omit<Category, 'id'>;
 export type PricePointCreate = Omit<PricePoint, 'id'>;
