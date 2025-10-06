@@ -336,12 +336,11 @@ function ToggleRow({ id, label, checked, onChange, description }: ToggleRowProps
           type="button"
           aria-pressed={checked}
           onClick={() => onChange(!checked)}
-          className={`relative h-6 w-12 overflow-hidden rounded-full border transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 ${checked ? "border-blue-400/60 bg-blue-500/80" : "border-slate-600/60 bg-slate-700/70"}`}
+          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/70 ${checked ? "border-blue-400/60 bg-blue-500" : "border-slate-600/60 bg-slate-700"}`}
         >
           <span className="sr-only">{label}</span>
           <span
-            className="absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-white shadow-sm transition-all duration-200"
-            style={{ left: checked ? "calc(100% - 24px)" : "2px" }}
+            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${checked ? "translate-x-5" : "translate-x-0"}`}
           />
         </button>
       </div>
